@@ -28,15 +28,24 @@ agents over stdio. Built on the [Enchilada Framework](https://buenapp.org)
 
 ## Install
 
+Download the self-contained `vcenter-mcp.phar` from the
+[latest release](https://github.com/buenapp/vcenter-mcp/releases/latest)
+(no Composer, no dependencies):
+
+```sh
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/vcenter-mcp.phar \
+  https://github.com/buenapp/vcenter-mcp/releases/latest/download/vcenter-mcp.phar
+chmod +x ~/.local/bin/vcenter-mcp.phar
+```
+
+To run from source instead:
+
 ```sh
 git clone https://pacyworld.dev/buenapp/vcenter-mcp.git
 cd vcenter-mcp
-cp config/instances.json.sample config/instances.json
-# edit config/instances.json
 php bin/vcenter-mcp --config=config/instances.json
 ```
-
-Or download the self-contained `vcenter-mcp.phar` from a release.
 
 ### Quick start
 
@@ -72,7 +81,7 @@ be `null` with `"netrc": true` to read it from `~/.netrc` (`machine
 Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 
 ```json
-{"mcpServers": {"vcenter": {"command": "php", "args": ["/path/to/vcenter-mcp/bin/vcenter-mcp"], "env": {"VCENTER_MCP_CONFIG": "/home/<you>/.config/vcenter-mcp/instances.json"}}}}
+{"mcpServers": {"vcenter": {"command": "php", "args": ["/home/<you>/.local/bin/vcenter-mcp.phar", "--config=/home/<you>/.config/vcenter-mcp/instances.json"]}}}
 ```
 
 ### Tools (32)
