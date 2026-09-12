@@ -292,4 +292,4 @@ Never copy from another project's `libraries/`.
 - DANE-TA (usage 2) validation — deferred to v0.2; v0.1 handles DANE-EE only and says so in the log when a usage-2 record is skipped.
 - Content Library ISOs — not needed (ISO lives on a datastore).
 - HTTP/SSE transport — stdio only for v0.1, same as forgejo-mcp at launch.
-- Vendored files pending upstream merges (Extras PRs #50–#53, Tortilla PR #6) — see docs/UPGRADING.md; re-vendor from master once merged.
+- ~~Vendored files pending upstream merges (Extras PRs #50–#53, Tortilla PR #6)~~ — all merged; everything tracks upstream master.

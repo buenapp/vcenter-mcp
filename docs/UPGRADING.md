@@ -14,20 +14,17 @@ byte-identity; for files pending upstream merges it compares against
 | Vendored dir | Source | Ref |
 |---|---|---|
 | `libraries/EnchiladaMCP/` | `Enchilada/Extras` MCP/ | master |
-| `libraries/Enchilada/Tortilla/` | `Enchilada/Tortilla` src/ | master; `HttpClient.php` from branch `feat/http-response-headers` (Tortilla PR #6) |
+| `libraries/Enchilada/Tortilla/` | `Enchilada/Tortilla` src/ | master |
 | `libraries/Enchilada/Comal/` | `Enchilada/Comal` src/ | master |
 | `libraries/EnchiladaHTTP/` | Extras `HTTP/EnchiladaHTTP.class.php` | master |
 | `libraries/EnchiladaMultiHTTP/` | Extras `HTTP/EnchiladaMultiHTTP.class.php` | master |
 | `libraries/Enchilada/Dns/` | Extras `Dns/` | master |
 | `libraries/EnchiladaWebSocket/` | Extras `WebSocket/` | master |
 
-### Pending upstream merges (re-vendor from master once merged)
-
-- **Tortilla #6** `feat/http-response-headers` —
-  `HttpClient::getLastResponseHeaders()` passthrough.
-
-When a PR merges: pull upstream master, re-copy the files, and point
-the layout test back at the working tree (drop the `git:` pair).
+All vendored files track upstream master; there are no pending
+branch vendors. If upstream work is needed again, land it on an
+upstream branch/PR, vendor from that branch, and point the layout
+test at `git show <branch>:<path>` until it merges.
 
 ## Non-negotiables
 

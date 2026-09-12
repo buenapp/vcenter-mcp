@@ -101,18 +101,6 @@ class VendoredLibraryLayoutTest extends TestCase
 		$pairs["$extras/HTTP/EnchiladaHTTP.class.php"] = 'libraries/EnchiladaHTTP/EnchiladaHTTP.class.php';
 		$pairs["$extras/HTTP/EnchiladaMultiHTTP.class.php"] = 'libraries/EnchiladaMultiHTTP/EnchiladaMultiHTTP.class.php';
 		foreach (glob("$tortilla/src/*.php") ?: [] as $src) {
-			// HttpClient is vendored from Tortilla branch
-			// feat/http-response-headers (getLastResponseHeaders pending
-			// upstream merge).
-			if (basename($src) === 'HttpClient.php') {
-				$out = [];
-				@exec('git -C ' . escapeshellarg($tortilla) . ' show feat/http-response-headers:src/HttpClient.php', $out);
-				if (!empty($out)) {
-					$pairs["git:$tortilla#feat/http-response-headers:src/HttpClient.php"]
-						= 'libraries/Enchilada/Tortilla/HttpClient.php';
-					continue;
-				}
-			}
 			$pairs[$src] = 'libraries/Enchilada/Tortilla/' . basename($src);
 		}
 		foreach (glob("$comal/src/*.php") ?: [] as $src) {
