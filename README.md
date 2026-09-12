@@ -98,6 +98,25 @@ See `docs/SETUP.md` for configuration, `docs/ARCHITECTURE.md` for
 internals and `docs/UPGRADING.md` for vendored-library provenance. The
 design plan is `docs/PLAN.md`.
 
+## Roadmap
+
+- **MCP prompt templates** — the highest-value next step. Ship
+  ready-made provisioning workflows, starting with a FreeBSD guest
+  preset: EFI boot, automatic video RAM, 10 GB root volume, 2 vCPUs,
+  4 GB RAM — create, boot the ISO, and hand back console access in one
+  shot.
+- **MCP resources** — expose vCenter objects as resource URIs so an
+  agent can read state without tool calls. Still deciding which
+  surfaces make sense (VM inventory and power state are the obvious
+  candidates; console frames and datastore listings are open
+  questions).
+- **DANE-TA (usage 2) TLSA validation** — v0.1 handles DANE-EE only;
+  usage-2 records are logged and skipped.
+- **HTTP/SSE transport** — stdio only today, same as the other
+  Enchilada MCP servers at launch.
+- **Under consideration** — VM snapshots, clone/template deploy,
+  datastore file upload, OVF import.
+
 ## License
 
 BSD-2-Clause — Copyright (c) 2026, The Daniel Morante Company, Inc.
