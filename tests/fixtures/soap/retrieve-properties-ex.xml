@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="HostSystem">host-12</obj>
+          <propSet>
+            <name>name</name>
+            <val xsi:type="xsd:string">esx1.example.com</val>
+          </propSet>
+          <propSet>
+            <name>datastore</name>
+            <val xsi:type="ArrayOfManagedObjectReference">
+              <ManagedObjectReference type="Datastore">datastore-21</ManagedObjectReference>
+              <ManagedObjectReference type="Datastore">datastore-22</ManagedObjectReference>
+            </val>
+          </propSet>
+        </objects>
+        <objects>
+          <obj type="Task">task-99</obj>
+          <propSet>
+            <name>info</name>
+            <val xsi:type="TaskInfo">
+              <key>task-99</key>
+              <task type="Task">task-99</task>
+              <state>success</state>
+              <result xsi:type="HostDatastoreBrowserSearchResults">
+                <folderPath>[CDImages] FreeBSD OS</folderPath>
+                <file xsi:type="IsoImageFileInfo">
+                  <path>FreeBSD-15.1-RELEASE-amd64-bootonly.iso</path>
+                  <fileSize>58982400</fileSize>
+                </file>
+              </result>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

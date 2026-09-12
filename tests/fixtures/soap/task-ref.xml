@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <CreateScreenshot_TaskResponse xmlns="urn:vim25">
+      <returnval type="Task">task-500</returnval>
+    </CreateScreenshot_TaskResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

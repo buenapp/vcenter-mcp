@@ -1,0 +1,204 @@
+#!/usr/bin/env php
+<?php
+/**
+ * vCenter MCP Server — stdio Entry Point
+ *
+ * Multi-instance VMware vCenter management via the Model Context Protocol.
+ * Communicates over stdin/stdout using JSON-RPC 2.0.
+ *
+ * Usage:
+ *   php bin/vcenter-mcp
+ *
+ * Environment:
+ *   VCENTER_MCP_CONFIG      Path to instances.json configuration file
+ *   VCENTER_MCP_LOG         Path to a log file (enables durable file logging)
+ *   VCENTER_MCP_LOG_LEVEL   debug|info|error (default: debug when a log file is set)
+ *   VCENTER_MCP_LOG_STDERR  Mirror log lines to STDERR (default: off; set to 1 to enable)
+ *   VCENTER_MCP_IO_MODE     auto|reactor|blocking (default: auto)
+ *
+ * CLI flags:
+ *   --config=PATH      Path to instances.json
+ *   --log=PATH         Log file path (overrides VCENTER_MCP_LOG)
+ *   --log-level=LEVEL  debug|info|error
+ *   --io-mode=MODE     auto|reactor|blocking (transport I/O strategy)
+ *
+ * @package    VCenterMCP
+ * @author     Daniel Morante
+ * @copyright  2026 The Daniel Morante Company, Inc.
+ * @license    BSD-2-Clause
+ */
+
+// Handle --version before bootstrap
+$versionFlags = ['--version', '-v', 'version', '-V'];
+if (isset($argv[1]) && in_array($argv[1], $versionFlags, true)) {
+	require_once dirname(__DIR__) . '/system/app.conf.php';
+	echo APPLICATION_NAME . ' ' . APPLICATION_VERSION . "\n";
+	exit(0);
+}
+
+// Enchilada Framework bootstrap
+require_once dirname(__DIR__) . '/system/bootstrap.inc.php';
+
+// Verify required PHP extensions
+$requiredExtensions = ['openssl', 'curl'];
+$missing = array_filter($requiredExtensions, fn($ext) => !extension_loaded($ext));
+if (!empty($missing)) {
+	fwrite(STDERR, "[vcenter-mcp] ERROR: Missing required PHP extension(s): " . implode(', ', $missing) . "\n");
+	fwrite(STDERR, "  Install via: pkg install " . implode(' ', array_map(fn($e) => "php84-{$e}", $missing)) . "\n");
+	exit(1);
+}
+
+use EnchiladaMCP\Logger;
+use EnchiladaMCP\McpServer;
+use Enchilada\Tortilla\ComalEventLoop;
+use Enchilada\Tortilla\StdioTransport;
+use VCenter\InstanceManager;
+
+// --- Configuration ---
+
+$configPath = getenv('VCENTER_MCP_CONFIG') ?: null;
+$logPath = getenv('VCENTER_MCP_LOG') ?: null;
+$logLevel = getenv('VCENTER_MCP_LOG_LEVEL') ?: 'debug';
+// Stderr mirroring is opt-in. stdout is the protocol channel and stderr
+// is only as reliable as the host's willingness to drain it: a host that
+// captures stderr and never reads it will fill the pipe and stall the
+// server. The log file is the durable diagnostic channel.
+$stderrEnv = getenv('VCENTER_MCP_LOG_STDERR');
+$logStderr = ($stderrEnv === false) ? false : (bool)$stderrEnv;
+$ioMode = getenv('VCENTER_MCP_IO_MODE') ?: null;
+
+// Check CLI arguments: --config=/path/to/instances.json, --log=/path/to/file, --log-level=debug
+foreach ($argv ?? [] as $arg) {
+	if (str_starts_with($arg, '--config=')) {
+		$configPath = substr($arg, 9);
+	}
+	if (str_starts_with($arg, '--log=')) {
+		$logPath = substr($arg, 6);
+	}
+	if (str_starts_with($arg, '--log-level=')) {
+		$logLevel = substr($arg, 12);
+	}
+	if (str_starts_with($arg, '--io-mode=')) {
+		$ioMode = substr($arg, 10);
+	}
+}
+
+$logLevelValue = Logger::levelFromString($logLevel) ?? Logger::LEVEL_DEBUG;
+$logger = new Logger($logPath, $logLevelValue, $logStderr, APPLICATION_SLUG);
+
+// Default config location
+if ($configPath === null) {
+	$candidates = [
+		APPLICATION_CONFDIR . 'instances.json',
+		getenv('HOME') . '/.config/vcenter-mcp/instances.json',
+		'/usr/local/etc/vcenter-mcp/instances.json',
+	];
+	foreach ($candidates as $candidate) {
+		if (file_exists($candidate)) {
+			$configPath = $candidate;
+			break;
+		}
+	}
+}
+
+if ($configPath === null || !file_exists($configPath)) {
+	fwrite(STDERR, "[vcenter-mcp] ERROR: No configuration file found.\n");
+	fwrite(STDERR, "  Set VCENTER_MCP_CONFIG environment variable or use --config=/path/to/instances.json\n");
+	fwrite(STDERR, "  Or place instances.json in config/ directory.\n");
+	exit(1);
+}
+
+// --- Bootstrap ---
+
+if ($logPath !== null && @file_put_contents($logPath, '', FILE_APPEND) === false) {
+	fwrite(STDERR, "[vcenter-mcp] WARNING: Log file not writable: {$logPath}\n");
+	$logger = new Logger(null, $logLevelValue, $logStderr, APPLICATION_SLUG);
+}
+
+$logger->info(APPLICATION_NAME . ' ' . APPLICATION_VERSION . " starting (pid " . getmypid() . ", php " . PHP_VERSION . ')');
+$logger->info("Log file: " . ($logPath ?? '(disabled — set VCENTER_MCP_LOG to enable)'));
+
+try {
+	$manager = InstanceManager::fromFile($configPath);
+} catch (\Exception $e) {
+	fwrite(STDERR, "[vcenter-mcp] ERROR: " . $e->getMessage() . "\n");
+	$logger->error('Configuration load failed: ' . $e->getMessage());
+	exit(1);
+}
+
+$manager->setLogger($logger);
+
+$instanceCount = $manager->count();
+$logger->info("Loaded {$instanceCount} instance(s) from {$configPath}");
+
+// --- Create MCP Server ---
+
+$server = new McpServer(APPLICATION_SLUG, APPLICATION_VERSION);
+$server->setLogger($logger);
+
+// The application owns the event loop (strict opt-in): shared with
+// the stdio transport (reactor I/O) and the tools' HTTP path, where
+// Tortilla\HttpClient parks the dispatch fiber on it during vCenter
+// API waits. null without vendored Comal: blocking I/O, progress flow
+// via the HttpClient poll loop.
+$loop = ComalEventLoop::create();
+$manager->setHttpTransport($loop, $server->tick(...));
+
+// Load instructions
+$instructionsFile = APPLICATION_CONFDIR . 'instructions.txt';
+if (file_exists($instructionsFile)) {
+	$server->setInstructions(file_get_contents($instructionsFile));
+}
+
+// Register tools
+$toolDir = APPLICATION_ROOT . 'tools';
+if (is_dir($toolDir)) {
+	foreach (scandir($toolDir) as $entry) {
+		if (substr($entry, -4) !== '.php') continue;
+		$className = basename($entry, '.php');
+		require_once $toolDir . DIRECTORY_SEPARATOR . $entry;
+		if (class_exists($className, false)) {
+			$server->register(new $className($manager));
+			$logger->debug("Registered tools: {$className}");
+		}
+	}
+}
+
+$logger->info("MCP server started (stdio transport)");
+
+// --- Run ---
+
+// Primitives in (handler, progress emitter), notifier back out —
+// only the composition root knows both sides of the contract.
+$transport = new StdioTransport($server->handleRequest(...), $server->tick(...));
+$transport->setLogger($logger);
+if ($loop !== null) {
+	$transport->setLoop($loop);      // opts into reactor I/O
+}
+$server->setNotifier($transport->sendNotification(...));
+
+// I/O mode override. 'auto' (the default) uses the Comal reactor on
+// POSIX and blocking reads on Windows, where an anonymous stdin pipe
+// cannot be polled. Override only when diagnosing transport behaviour.
+if ($ioMode !== null) {
+	try {
+		$transport->setIoMode($ioMode);
+	} catch (\InvalidArgumentException $e) {
+		fwrite(STDERR, "[vcenter-mcp] ERROR: " . $e->getMessage() . "\n");
+		exit(1);
+	}
+}
+
+// Best-effort session cleanup on exit: WebMKS console sessions and the
+// REST/SOAP sessions on every resolved instance.
+register_shutdown_function(function () use ($manager, $logger): void {
+	try {
+		$manager->shutdown();
+	} catch (\Throwable $e) {
+		$logger->debug('Shutdown cleanup failed: ' . $e->getMessage());
+	}
+});
+
+$transport->run();
+
+$logger->info("MCP server stopped");

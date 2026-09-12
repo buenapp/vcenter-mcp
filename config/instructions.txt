@@ -1,0 +1,29 @@
+vCenter MCP server for managing VMware vCenter instances. Supports multiple vCenter instances.
+
+Use list_vcenter_instances to see configured instances. The 'instance' parameter is optional on all tool calls and defaults to the configured default instance.
+
+Key capabilities:
+- Inventory browsing (datacenters, clusters, hosts, datastores, networks, folders, resource pools)
+- VM lifecycle (list, inspect, create, delete, CPU/memory resize)
+- VM devices (CD-ROM ISO attach/detach, disks, NICs, boot order/firmware)
+- Power control (on, off, reset, suspend, guest shutdown/reboot)
+- Console interaction (screenshots, keystrokes, blocking VM questions) via WebMKS/RFB or vim25 SOAP
+- Guest info (identity, network interfaces, IP discovery)
+
+Important rules:
+- Some hosts are excluded from VM placement (see 'excluded: true' in list_hosts output). create_vm enforces this automatically; never work around it.
+- Most parameters accept either a MoRef id (e.g. 'host-12', 'datastore-3', 'vm-42') or a name. Names are resolved against inventory; ambiguous names are rejected with the candidate list.
+- Names like 'Default' (network) or 'CDImages' (datastore) can exist per datacenter — when a name is ambiguous or resolution fails, pass the 'datacenter' parameter or the MoRef id.
+- To find an ISO image for a CD-ROM, use browse_datastore to list files on a datastore (e.g. path 'FreeBSD OS', pattern '*.iso'), then pass the result as 'iso' to attach_iso or create_vm in the form '[DatastoreName] path/file.iso'.
+
+Typical VM install workflow:
+1. list_datacenters / list_hosts / list_datastores / list_networks to survey inventory (or rely on instance defaults).
+2. browse_datastore to locate the installer ISO (e.g. path "FreeBSD OS", pattern "*.iso").
+3. create_vm with the desired network and iso. When host/datastore are omitted, suitable non-excluded placement is chosen automatically.
+4. vm_power action 'on' to boot.
+5. Drive the installer over the console: vm_screenshot to read the screen, vm_send_keys to type (text is literal; keys for named keys/combos like 'enter', 'tab', 'ctrl-alt-del'). Both take method='auto' (default): they try the WebMKS console on the VM's ESXi host and fall back to SOAP when that host is unreachable. method='soap' forces the vCenter-only path; method='webmks' fails instead of falling back. vm_console_info reports the ticket target and TLS trust basis when the WebMKS path misbehaves.
+6. When the VM appears stalled, call get_vm_question — a pending question blocks the VM until answer_vm_question answers it.
+7. When the installer finishes, choose 'Reboot' in the installer FIRST, then detach_iso. Detaching while the live installer still runs raises the question 'The guest has locked the CD-ROM door' — answer it with answer_vm_question choice=button.yes, or the guest later page-faults in init and needs vm_power reset.
+8. Find the guest IP with find_vm_ip (or get_guest_info), then log in over SSH.
+
+Note: REST/SSO usernames may need the domain suffix (e.g. 'user@vsphere.local').

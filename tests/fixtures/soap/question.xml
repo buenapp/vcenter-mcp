@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet>
+            <name>runtime.question</name>
+            <val xsi:type="VirtualMachineQuestionInfo">
+              <id>question-1</id>
+              <text>msg.uuid.altered: This VM was moved or copied. Continue?</text>
+              <choice>
+                <choiceInfo><key>0</key><label>button.uuid.movedTheVM</label></choiceInfo>
+                <choiceInfo><key>1</key><label>button.uuid.copiedTheVM</label></choiceInfo>
+              </choice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

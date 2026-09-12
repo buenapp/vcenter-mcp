@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet><name>parent</name><val type="Folder">group-v1</val></propSet>
+        </objects>
+        <objects>
+          <obj type="Folder">group-v1</obj>
+          <propSet><name>parent</name><val type="Datacenter">datacenter-1</val></propSet>
+        </objects>
+        <objects>
+          <obj type="Datacenter">datacenter-1</obj>
+          <propSet><name>name</name><val xsi:type="xsd:string">DC1</val></propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

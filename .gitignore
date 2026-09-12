@@ -1,0 +1,18 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Config (contains credentials)
+config/instances.json
+
+# Build artifacts
+*.phar
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
+config/instances-test.json
+.phpunit.cache/

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <AcquireTicketResponse xmlns="urn:vim25">
+      <returnval xsi:type="VirtualMachineTicket">
+        <ticket>5255f2d7-d0f4-4e8d-9b3a-ticketabc</ticket>
+        <cfgFile>[ds2] t1/t1.vmx</cfgFile>
+        <host>esx1.example.com</host>
+        <port>443</port>
+        <sslThumbprint>AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD</sslThumbprint>
+      </returnval>
+    </AcquireTicketResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

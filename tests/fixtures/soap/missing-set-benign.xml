@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25"><returnval>
+      <objects><obj type="VirtualMachine">vm-42</obj>
+        <propSet><name>name</name><val xsi:type="xsd:string">testvm</val></propSet>
+        <missingSet><path>runtime.question</path><fault><fault xsi:type="NotFound"/><localizedMessage/></fault></missingSet>
+        <missingSet><path>runtime.offlineReason</path></missingSet>
+      </objects>
+    </returnval></RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

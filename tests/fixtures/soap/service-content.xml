@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrieveServiceContentResponse xmlns="urn:vim25">
+      <returnval>
+        <rootFolder type="Folder">group-d1</rootFolder>
+        <propertyCollector type="PropertyCollector">propertyCollector</propertyCollector>
+        <sessionManager type="SessionManager">SessionManager</sessionManager>
+        <fileManager type="FileManager">FileManager</fileManager>
+        <about>
+          <name>VMware vCenter Server</name>
+          <fullName>VMware vCenter Server 8.0.3 build-24345018</fullName>
+          <version>8.0.3</version>
+          <build>24345018</build>
+          <apiVersion>8.0.3.0</apiVersion>
+          <apiType>VirtualCenter</apiType>
+        </about>
+      </returnval>
+    </RetrieveServiceContentResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

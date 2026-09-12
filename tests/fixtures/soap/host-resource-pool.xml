@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="HostSystem">host-12</obj>
+          <propSet><name>parent</name><val type="ClusterComputeResource">domain-c1</val></propSet>
+          <propSet><name>datastore</name><val xsi:type="ArrayOfManagedObjectReference"><ManagedObjectReference type="Datastore">datastore-22</ManagedObjectReference></val></propSet>
+        </objects>
+        <objects>
+          <obj type="ClusterComputeResource">domain-c1</obj>
+          <propSet><name>resourcePool</name><val type="ResourcePool">resgroup-77</val></propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

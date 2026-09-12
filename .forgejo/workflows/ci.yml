@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: FreeBSD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: doas pkg install -y phpunit11-php84
+
+      - name: Syntax check
+        run: |
+          find classes/ tools/ bin/ system/ libraries/ -name '*.php' -exec php -l {} \; | grep -v "No syntax errors" && exit 1 || true
+
+      - name: Run tests
+        run: phpunit

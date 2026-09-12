@@ -1,0 +1,609 @@
+<?php
+/**
+ * vCenter MCP Server — vim25 SOAP Client
+ *
+ * Minimal hand-built SOAP client for the /sdk endpoint. Envelopes use
+ * xmlns:soapenv + a body in urn:vim25 with SOAPAction
+ * "urn:vim25/8.0.0.0". Login authenticates with the same credentials as
+ * REST; the server's `Set-Cookie: vmware_soap_session="..."` is
+ * captured from the response headers and replayed on later calls
+ * (UserSession.key is NOT the cookie value — verified against 8.0.3).
+ *
+ * One generic invoke() builds/parses envelopes; each vim25 method is a
+ * small typed helper, so adding one is a few lines.
+ *
+ * @package    VCenterMCP\VCenter
+ * @author     Daniel Morante
+ * @copyright  2026 The Daniel Morante Company, Inc.
+ * @license    BSD-2-Clause
+ */
+
+namespace VCenter;
+
+class SoapClient
+{
+	public const VIM25 = 'urn:vim25';
+	public const SOAP_ACTION = 'urn:vim25/8.0.0.0';
+	public const SOAP_ENV = 'http://schemas.xmlsoap.org/soap/envelope/';
+
+	/** @var Instance Owning instance */
+	private Instance $instance;
+
+	/** @var string|null vmware_soap_session cookie value from Login's Set-Cookie */
+	private ?string $sessionKey = null;
+
+	/** @var array Response headers of the most recent send() (lowercase name => list) */
+	private array $lastResponseHeaders = [];
+
+	/** @var array|null Cached RetrieveServiceContent result */
+	private ?array $serviceContent = null;
+
+	/** @var int HTTP status of the most recent call */
+	private int $lastHttpCode = 0;
+
+	public function __construct(Instance $instance)
+	{
+		$this->instance = $instance;
+	}
+
+	/**
+	 * Invoke a vim25 method.
+	 *
+	 * @param  string $method   vim25 method name (e.g. "RetrievePropertiesEx")
+	 * @param  string $thisType Managed-object type of _this (e.g. "PropertyCollector")
+	 * @param  string $thisId   MoRef id of _this (e.g. "propertyCollector")
+	 * @param  string $innerXml XML for the method's parameters (already escaped)
+	 * @return \SimpleXMLElement The <returnval> element (or method response
+	 *                          element when there is no returnval)
+	 * @throws VCenterException On SOAP faults or transport errors
+	 */
+	public function invoke(string $method, string $thisType, string $thisId, string $innerXml = ''): \SimpleXMLElement
+	{
+		$body = '<' . $method . ' xmlns="' . self::VIM25 . '">'
+			. '<_this type="' . $thisType . '">' . self::esc($thisId) . '</_this>'
+			. $innerXml
+			. '</' . $method . '>';
+
+		$xml = $this->roundTrip($body);
+
+		// Return the <returnval> child of the method response, or the
+		// response element itself for void methods.
+		$response = null;
+		foreach ($xml->children(self::VIM25) as $child) {
+			$response = $child;
+			break;
+		}
+		if ($response === null) {
+			// Some serializers omit the vim25 namespace on the response
+			foreach ($xml->children() as $child) {
+				$response = $child;
+				break;
+			}
+		}
+		if ($response === null) {
+			throw new VCenterException("Empty SOAP response for {$method}", 0, 'ParseError');
+		}
+		$returnval = $response->xpath('.//*[local-name()="returnval"]');
+		if (is_array($returnval) && count($returnval) === 1) {
+			return $returnval[0];
+		}
+		return $response;
+	}
+
+	/**
+	 * Raw envelope round-trip. Public so tests and Phase-2 helpers can
+	 * send arbitrary method bodies.
+	 *
+	 * @throws VCenterException On SOAP fault or transport error
+	 */
+	public function roundTrip(string $bodyXml): \SimpleXMLElement
+	{
+		$envelope = '<?xml version="1.0" encoding="UTF-8"?>'
+			. '<soapenv:Envelope xmlns:soapenv="' . self::SOAP_ENV . '">'
+			. '<soapenv:Body>' . $bodyXml . '</soapenv:Body>'
+			. '</soapenv:Envelope>';
+
+		$headers = [
+			'Content-Type: text/xml; charset=utf-8',
+			'SOAPAction: "' . self::SOAP_ACTION . '"',
+		];
+		if ($this->sessionKey !== null) {
+			$headers[] = 'Cookie: vmware_soap_session="' . $this->sessionKey . '"';
+		}
+
+		[$code, $responseBody] = $this->send($envelope, $headers);
+		$url = $this->instance->url() . '/sdk';
+
+		if ($code === 0) {
+			throw new VCenterException("Transport error for {$url}: no HTTP response received", 0, 'Transport');
+		}
+
+		$xml = @simplexml_load_string($responseBody);
+		if ($xml === false) {
+			throw new VCenterException("Invalid SOAP response from {$url} (HTTP {$code})", $code, 'ParseError');
+		}
+
+		$bodies = $xml->xpath('//*[local-name()="Body"]');
+		$bodyEl = $bodies[0] ?? null;
+		if ($bodyEl === null) {
+			throw new VCenterException("SOAP response from {$url} has no Body", $code, 'ParseError');
+		}
+
+		$faults = $bodyEl->xpath('./*[local-name()="Fault"]');
+		if (!empty($faults)) {
+			throw $this->faultException($faults[0], $code);
+		}
+		if ($code >= 400) {
+			throw new VCenterException("SOAP call failed with HTTP {$code} for {$url}", $code, 'HttpError');
+		}
+
+		return $bodyEl;
+	}
+
+	/**
+	 * RetrieveServiceContent -> decoded ServiceContent.
+	 *
+	 * @return array{about:array,sessionManager:array,propertyCollector:array,rootFolder:array,fileManager:?array}
+	 */
+	public function serviceContent(): array
+	{
+		if ($this->serviceContent === null) {
+			$ret = $this->invoke('RetrieveServiceContent', 'ServiceInstance', 'ServiceInstance');
+			$this->serviceContent = [
+				'about' => self::xmlToArray($ret->xpath('.//*[local-name()="about"]')[0] ?? null),
+				'sessionManager' => self::moRef($ret, 'sessionManager'),
+				'propertyCollector' => self::moRef($ret, 'propertyCollector'),
+				'rootFolder' => self::moRef($ret, 'rootFolder'),
+				'fileManager' => self::moRef($ret, 'fileManager'),
+			];
+		}
+		return $this->serviceContent;
+	}
+
+	/** The 'about' block (fullName, version, build, apiVersion, ...). */
+	public function about(): array
+	{
+		return $this->serviceContent()['about'];
+	}
+
+	/**
+	 * SOAP Login; stores the session key for the cookie header.
+	 *
+	 * @throws VCenterException
+	 */
+	public function login(): void
+	{
+		$content = $this->serviceContent();
+		$this->invoke('Login', 'SessionManager', $content['sessionManager']['id'],
+			'<userName>' . self::esc($this->instance->username()) . '</userName>'
+			. '<password>' . self::esc($this->instance->password()) . '</password>');
+
+		// The session token is the Set-Cookie header value, NOT the
+		// UserSession.key in the response body (they differ — the cookie
+		// is a 40-char session id, the key is a 36-char UUID).
+		foreach ($this->lastResponseHeaders['set-cookie'] ?? [] as $line) {
+			if (preg_match('/^\s*vmware_soap_session\s*=\s*"?([^";]*)"?/i', (string) $line, $m)
+				&& $m[1] !== '') {
+				$this->sessionKey = $m[1];
+				return;
+			}
+		}
+		throw new VCenterException(
+			'Login succeeded but no vmware_soap_session cookie was returned',
+			0, 'NotAuthenticated'
+		);
+	}
+
+	/** SOAP Logout; best-effort. */
+	public function logout(): void
+	{
+		if ($this->sessionKey === null) {
+			return;
+		}
+		try {
+			$content = $this->serviceContent();
+			$this->invoke('Logout', 'SessionManager', $content['sessionManager']['id']);
+		} catch (\Throwable $e) {
+			// best-effort
+		}
+		$this->sessionKey = null;
+	}
+
+	public function hasSession(): bool
+	{
+		return $this->sessionKey !== null;
+	}
+
+	/**
+	 * Ensure a SOAP session exists (Login once, re-login once on a
+	 * NotAuthenticated fault).
+	 */
+	public function ensureSession(): void
+	{
+		if ($this->sessionKey === null) {
+			$this->login();
+		}
+	}
+
+	/**
+	 * invoke() for session-bearing methods: ensures Login, and on a
+	 * NotAuthenticated fault clears the session, re-logs in and retries
+	 * once. Every helper except RetrieveServiceContent/Login/Logout goes
+	 * through this.
+	 *
+	 * @throws VCenterException
+	 */
+	public function invokeAuthed(string $method, string $thisType, string $thisId, string $innerXml = ''): \SimpleXMLElement
+	{
+		$this->ensureSession();
+		try {
+			return $this->invoke($method, $thisType, $thisId, $innerXml);
+		} catch (VCenterException $e) {
+			if ($e->getErrorType() === 'NotAuthenticated') {
+				$this->sessionKey = null;
+				$this->login();
+				return $this->invoke($method, $thisType, $thisId, $innerXml);
+			}
+			throw $e;
+		}
+	}
+
+	/**
+	 * RetrievePropertiesEx on a set of MoRefs.
+	 *
+	 * @param  array<int,array{type:string,id:string}> $objects MoRefs to read
+	 * @param  string[] $props   Property names (apply to every object type)
+	 * @return array<string,array<string,mixed>> props keyed by "type:id"
+	 * @throws VCenterException
+	 */
+	public function retrieveProperties(array $objects, array $props): array
+	{
+		return $this->properties($objects, $props);
+	}
+
+	/**
+	 * Shared RetrievePropertiesEx used by PropertyCollector.
+	 *
+	 * @param  array<int,array{type:string,id:string}> $objects
+	 * @param  array<string,string[]> $propsByType type => property names
+	 * @return array<string,array<string,mixed>> keyed by "type:id"
+	 */
+	public function properties(array $objects, array $propsByType): array
+	{
+		return $this->doRetrieveProperties($objects, $propsByType);
+	}
+
+	/**
+	 * SearchDatastore_Task on a HostDatastoreBrowser; returns the Task MoRef.
+	 *
+	 * @param  array{type:string,id:string} $browser   HostDatastoreBrowser MoRef
+	 * @param  string                       $datastorePath "[ds] path/" to list
+	 * @param  string                       $pattern   File-name pattern ('*', '*.iso')
+	 * @return array{type:string,id:string} Task MoRef
+	 */
+	public function searchDatastore(array $browser, string $datastorePath, string $pattern = '*'): array
+	{
+		$inner = '<datastorePath>' . self::esc($datastorePath) . '</datastorePath>'
+			. '<searchSpec>'
+			. '<details><fileType>true</fileType><fileSize>true</fileSize><modification>true</modification><fileOwner>false</fileOwner></details>'
+			. '<matchPattern>' . self::esc($pattern) . '</matchPattern>'
+			. '<sortFoldersFirst>true</sortFoldersFirst>'
+			. '</searchSpec>';
+		$ret = $this->invokeAuthed('SearchDatastore_Task', $browser['type'], $browser['id'], $inner);
+		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
+	/**
+	 * Download a datastore file over the /folder endpoint (screenshots).
+	 * Requires an active SOAP session (cookie is sent).
+	 *
+	 * @throws VCenterException
+	 */
+	public function downloadDatastoreFile(string $datastorePath, string $dcName, string $dsName): string
+	{
+		$this->ensureSession();
+		// $datastorePath is "[ds] vm/dir/file.png" — strip the [ds] prefix
+		$path = preg_replace('/^\[[^\]]+\]\s*/', '', $datastorePath);
+		$query = 'dcPath=' . rawurlencode($dcName) . '&dsName=' . rawurlencode($dsName);
+
+		$headers = ['Cookie: vmware_soap_session="' . $this->sessionKey . '"'];
+		[$code, $body] = $this->send('', $headers, 'folder/' . implode('/', array_map('rawurlencode', explode('/', $path))) . '?' . $query, 'GET');
+		if ($code !== 200) {
+			throw new VCenterException("Datastore file download failed (HTTP {$code}) for {$datastorePath}", $code, 'Download');
+		}
+		return $body;
+	}
+
+	/** DeleteDatastoreFile_Task via FileManager; returns the Task MoRef. */
+	public function deleteDatastoreFile(string $datastorePath, array $datacenterMoRef): array
+	{
+		$content = $this->serviceContent();
+		$ret = $this->invokeAuthed('DeleteDatastoreFile_Task', 'FileManager', $content['fileManager']['id'],
+			'<name>' . self::esc($datastorePath) . '</name>'
+			. '<datacenter type="' . $datacenterMoRef['type'] . '">' . self::esc($datacenterMoRef['id']) . '</datacenter>');
+		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
+	/**
+	 * PutUsbScanCodes: inject USB HID key events into a VM.
+	 *
+	 * One call carries at most 32 key events (vim25 limit); callers chunk.
+	 *
+	 * @param  array{type:string,id:string} $vm     VirtualMachine MoRef
+	 * @param  array<int,array{usbHidCode:int,modifiers:array}> $events
+	 * @return int Number of key events the server accepted
+	 * @throws VCenterException When more than 32 events are passed
+	 */
+	public function putUsbScanCodes(array $vm, array $events): int
+	{
+		if (count($events) > 32) {
+			throw new VCenterException('PutUsbScanCodes accepts at most 32 key events per call', 0, 'InvalidArgument');
+		}
+
+		$keys = '';
+		foreach ($events as $event) {
+			$mods = '';
+			foreach (['leftControl', 'leftShift', 'leftAlt', 'leftGui', 'rightControl', 'rightShift', 'rightAlt', 'rightGui'] as $m) {
+				$mods .= '<' . $m . '>' . (!empty($event['modifiers'][$m]) ? 'true' : 'false') . '</' . $m . '>';
+			}
+			$keys .= '<keyEvents>'
+				. '<usbHidCode>' . (int) $event['usbHidCode'] . '</usbHidCode>'
+				. '<modifiers>' . $mods . '</modifiers>'
+				. '</keyEvents>';
+		}
+
+		$ret = $this->invokeAuthed('PutUsbScanCodes', $vm['type'], $vm['id'],
+			'<spec>' . $keys . '</spec>');
+
+		return is_numeric((string) $ret) ? (int) $ret : count($events);
+	}
+
+	/**
+	 * CreateScreenshot_Task on a VirtualMachine; returns the Task MoRef.
+	 * The task's info.result is a datastore path like "[ds] vm/vm-N.png".
+	 *
+	 * @param  array{type:string,id:string} $vm VirtualMachine MoRef
+	 * @return array{type:string,id:string} Task MoRef
+	 */
+	public function createScreenshot(array $vm): array
+	{
+		$ret = $this->invokeAuthed('CreateScreenshot_Task', $vm['type'], $vm['id']);
+		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
+	/**
+	 * AcquireTicket on a VirtualMachine.
+	 *
+	 * @param  array{type:string,id:string} $vm   VirtualMachine MoRef
+	 * @param  string                       $type Ticket type ('webmks', ...)
+	 * @return array{ticket:string,cfgFile:string,host:string,port:int,sslThumbprint:string}
+	 */
+	public function acquireTicket(array $vm, string $type): array
+	{
+		$ret = $this->invokeAuthed('AcquireTicket', $vm['type'], $vm['id'],
+			'<ticketType>' . self::esc($type) . '</ticketType>');
+		$a = self::xmlToArray($ret);
+		return [
+			'ticket' => (string) ($a['ticket'] ?? ''),
+			'cfgFile' => (string) ($a['cfgFile'] ?? ''),
+			'host' => (string) ($a['host'] ?? ''),
+			'port' => (int) ($a['port'] ?? 0),
+			'sslThumbprint' => (string) ($a['sslThumbprint'] ?? ''),
+			// vSphere 8 may add per-algorithm entries [{hashAlgorithm, thumbprint}]
+			'certThumbprintList' => array_values(array_filter(
+				(array) ($a['certThumbprintList'] ?? []), 'is_array')),
+		];
+	}
+
+	/**
+	 * AnswerVM: answer a blocking VM question.
+	 *
+	 * @param array{type:string,id:string} $vm         VirtualMachine MoRef
+	 * @param string                       $questionId Question id (runtime.question.id)
+	 * @param string                       $choice     Choice key from choice.choiceInfo
+	 */
+	public function answerVm(array $vm, string $questionId, string $choice): void
+	{
+		$this->invokeAuthed('AnswerVM', $vm['type'], $vm['id'],
+			'<questionId>' . self::esc($questionId) . '</questionId>'
+			. '<answerChoice>' . self::esc($choice) . '</answerChoice>');
+	}
+
+	// ── Internals ────────────────────────────────────────────────────
+
+	private function doRetrieveProperties(array $objects, array $propsByType): array
+	{
+		$content = $this->serviceContent();
+		$pc = $content['propertyCollector'];
+
+		// PropertySpec per type
+		$propSpec = '';
+		foreach ($propsByType as $type => $props) {
+			$propSpec .= '<propSet><type>' . self::esc($type) . '</type>';
+			foreach ($props as $p) {
+				$propSpec .= '<pathSet>' . self::esc($p) . '</pathSet>';
+			}
+			$propSpec .= '</propSet>';
+		}
+
+		$objectSet = '';
+		foreach ($objects as $obj) {
+			$objectSet .= '<objectSet><obj type="' . self::esc($obj['type']) . '">' . self::esc($obj['id']) . '</obj></objectSet>';
+		}
+
+		$inner = '<specSet>' . $propSpec . $objectSet . '</specSet>';
+
+		$ret = $this->invokeAuthed('RetrievePropertiesEx', 'PropertyCollector', $pc['id'],
+			$inner . '<options/>');
+
+		$out = [];
+		foreach ($ret->xpath('.//*[local-name()="objects"]') as $objContent) {
+			$obj = $objContent->xpath('./*[local-name()="obj"]')[0] ?? null;
+			if ($obj === null) {
+				continue;
+			}
+			$key = ((string) $obj['type']) . ':' . ((string) $obj);
+			foreach ($objContent->xpath('./*[local-name()="propSet"]') as $propSet) {
+				$name = (string) ($propSet->xpath('./*[local-name()="name"]')[0] ?? '');
+				$val = $propSet->xpath('./*[local-name()="val"]')[0] ?? null;
+				if ($name !== '' && $val !== null) {
+					$out[$key][$name] = self::xmlToArray($val);
+				}
+			}
+			// missingSet entries carry LocalizedMethodFaults for properties
+			// that could not be read. Benign absences (NotFound — e.g.
+			// runtime.question when no question is pending) stay silent;
+			// real faults (NotAuthenticated, SecurityError, ...) surface
+			// instead of silently yielding an empty property set.
+			foreach ($objContent->xpath('./*[local-name()="missingSet"]') as $missing) {
+				$path = (string) ($missing->xpath('./*[local-name()="path"]')[0] ?? '?');
+				$faultEl = $missing->xpath('./*[local-name()="fault"]/*[local-name()="fault"]')[0] ?? null;
+				if ($faultEl === null) {
+					continue;
+				}
+				$faultType = preg_replace('/^.*:/', '', (string) $faultEl
+					->attributes('http://www.w3.org/2001/XMLSchema-instance')['type']);
+				if ($faultType === '' || in_array($faultType, ['NotFound', 'InvalidProperty'], true)) {
+					continue;
+				}
+				$privilege = (string) ($faultEl->xpath('./*[local-name()="privilegeId"]')[0] ?? '');
+				$detail = $privilege !== '' ? "missing privilege {$privilege}" : $faultType;
+				throw new VCenterException(
+					"Property '{$path}' on {$key} unavailable: {$faultType} ({$detail})",
+					0, $faultType
+				);
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Send a SOAP envelope through the injected callable or shared engine.
+	 *
+	 * @return array{0:int,1:string} [HTTP status, response body];
+	 *         response headers land in $this->lastResponseHeaders
+	 *         (lowercase name => list of values).
+	 * @throws VCenterException
+	 */
+	private function send(string $body, array $headers, ?string $pathOverride = null, string $verb = 'POST'): array
+	{
+		$path = $pathOverride ?? 'sdk';
+		$url = $this->instance->url() . '/' . $path;
+
+		$fake = $this->instance->httpClient();
+		if ($fake !== null) {
+			$response = $fake($verb, $url, $headers, $body === '' ? null : $body);
+			$this->lastHttpCode = $response['code'];
+			$this->lastResponseHeaders = $response['headers'] ?? [];
+			return [$response['code'], (string) ($response['body'] ?? '')];
+		}
+
+		try {
+			$result = $this->instance->http()->call($path, $body === '' ? null : $body, $verb, $headers, null, 'raw');
+		} catch (\Exception $e) {
+			throw new VCenterException("HTTP error for {$url}: " . $e->getMessage(), 0, 'Transport', $e);
+		}
+
+		$http = $this->instance->http();
+		$this->lastHttpCode = $http->getHttpCode();
+		$this->lastResponseHeaders = $http->getLastResponseHeaders();
+		if ($this->lastHttpCode === 0 || $http->getLastCurlErrno() !== 0) {
+			throw new VCenterException("Transport error for {$url}: " . $http->getLastCurlError(), 0, 'Transport');
+		}
+		return [$this->lastHttpCode, is_string($result) ? $result : ''];
+	}
+
+	/**
+	 * Map a <Fault> element to a VCenterException.
+	 */
+	private function faultException(\SimpleXMLElement $fault, int $httpCode): VCenterException
+	{
+		$faultcode = (string) ($fault->xpath('./*[local-name()="faultcode"]')[0] ?? 'Fault');
+		$faultstring = (string) ($fault->xpath('./*[local-name()="faultstring"]')[0] ?? 'SOAP fault');
+		$detail = $fault->xpath('./*[local-name()="detail"]')[0] ?? null;
+		$faultType = null;
+		if ($detail !== null) {
+			foreach ($detail->children() as $child) {
+				$faultType = $child->getName();
+				break;
+			}
+			// xsi:type on the detail element is common too
+			$attrs = $detail->attributes('http://www.w3.org/2001/XMLSchema-instance');
+			if ($faultType === null && isset($attrs['type'])) {
+				$faultType = preg_replace('/^.*:/', '', (string) $attrs['type']);
+			}
+			// "NotAuthenticatedFault" -> "NotAuthenticated"
+			if ($faultType !== null) {
+				$faultType = preg_replace('/Fault$/', '', $faultType);
+			}
+		}
+		return VCenterException::fromSoapFault($faultcode, $faultstring, $faultType, $httpCode);
+	}
+
+	/** Extract a ManagedObjectReference child as {type, id}. */
+	public static function moRef(?\SimpleXMLElement $el, string $childName): ?array
+	{
+		if ($el === null) {
+			return null;
+		}
+		$node = $el->xpath('./*[local-name()="' . $childName . '"]')[0] ?? null;
+		if ($node === null) {
+			return null;
+		}
+		return ['type' => (string) $node['type'], 'id' => (string) $node];
+	}
+
+	/**
+	 * Decode a vim25 value element to a PHP value: scalars to strings,
+	 * nested elements to arrays (MoRefs to {type,id}, repeated children
+	 * to lists).
+	 */
+	public static function xmlToArray(?\SimpleXMLElement $el): mixed
+	{
+		if ($el === null) {
+			return null;
+		}
+		$children = $el->children();
+		// ArrayOf* types flatten to a plain list of their child values
+		$type = (string) $el->attributes('http://www.w3.org/2001/XMLSchema-instance')['type'];
+		if (str_contains($type, 'ArrayOf')) {
+			$list = [];
+			foreach ($children as $child) {
+				$list[] = self::xmlToArray($child);
+			}
+			return $list;
+		}
+		if (count($children) === 0) {
+			$text = (string) $el;
+			if (str_contains($type, 'ManagedObjectReference') || isset($el['type'])) {
+				return ['type' => (string) $el['type'], 'id' => $text];
+			}
+			if (str_ends_with($type, ':boolean') || $type === 'xsd:boolean') {
+				return $text === 'true' || $text === '1';
+			}
+			if (str_ends_with($type, ':long') || str_ends_with($type, ':int')) {
+				return is_numeric($text) ? (int) $text : $text;
+			}
+			return $text;
+		}
+		$out = [];
+		foreach ($children as $child) {
+			$name = $child->getName();
+			$value = self::xmlToArray($child);
+			if (isset($out[$name])) {
+				if (!is_array($out[$name]) || !array_is_list($out[$name])) {
+					$out[$name] = [$out[$name]];
+				}
+				$out[$name][] = $value;
+			} else {
+				$out[$name] = $value;
+			}
+		}
+		return $out;
+	}
+
+	public static function esc(string $s): string
+	{
+		return htmlspecialchars($s, ENT_QUOTES | ENT_XML1, 'UTF-8');
+	}
+}

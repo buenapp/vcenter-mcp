@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <LoginResponse xmlns="urn:vim25">
+      <returnval>
+        <key>5271f3e6-9b3d-4d7a-a1c2-0123456789ab</key>
+        <userName>VCENTER\vcadmin</userName>
+        <fullName>vcadmin</fullName>
+        <loginTime>2026-09-11T10:00:00Z</loginTime>
+      </returnval>
+    </LoginResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

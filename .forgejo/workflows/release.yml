@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: FreeBSD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: doas pkg install -y phpunit11-php84
+
+      - name: Run tests
+        run: phpunit
+
+      - name: Build PHAR
+        run: php -d phar.readonly=0 bin/build-phar.php
+
+      - name: Create release
+        run: |
+          VERSION="${{ github.ref_name }}"
+          BODY="Release ${VERSION} of vCenter MCP Server.
+
+          ## Install
+          \`\`\`sh
+          curl -LO ${{ github.server_url }}/${{ github.repository }}/releases/download/${VERSION}/vcenter-mcp.phar
+          chmod +x vcenter-mcp.phar
+          \`\`\`"
+
+          # Create release via API
+          RELEASE_ID=$(curl -s -X POST \
+            -H "Authorization: token ${FORGE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"${VERSION}\",\"name\":\"${VERSION}\",\"body\":$(echo "$BODY" | jq -Rs .)}" \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases" | jq -r '.id')
+
+          # Upload PHAR as release asset
+          curl -s -X POST \
+            -H "Authorization: token ${FORGE_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @vcenter-mcp.phar \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/releases/${RELEASE_ID}/assets?name=vcenter-mcp.phar"
+
+          echo "Release ${VERSION} created with PHAR attachment"
+        env:
+          FORGE_TOKEN: ${{ secrets.FORGE_TOKEN }}
