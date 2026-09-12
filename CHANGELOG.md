@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `get_video` / `set_video` video card tools over vim25 SOAP
+  (config.hardware.device read, ReconfigVM_Task device edit) — the
+  vSphere REST API does not model VirtualMachineVideoCard. Video card
+  edits require the VM powered off; violations surface as a clean
+  `PowerStateError` (REST pre-check plus InvalidPowerState fault
+  mapping). `use_auto_detect=true` rejects explicit
+  `video_ram_size_kb`/`num_displays` instead of silently dropping them.
+
 ## [0.1.0] - 2026-09-11
 
 ### Added

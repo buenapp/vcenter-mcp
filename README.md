@@ -11,7 +11,8 @@ agents over stdio. Built on the [Enchilada Framework](https://buenapp.org)
   folders, resource pools, datastore file listing
 - VM lifecycle: list, inspect, create (with automatic host/datastore
   placement and host exclusion), delete, CPU/memory resize
-- Device management: CD-ROM ISO attach/detach, disks, NICs, boot order
+- Device management: CD-ROM ISO attach/detach, disks, NICs, boot order,
+  video card (VRAM auto-detect, displays, 3D support)
 - Power control and guest OS information
 - Console interaction over two transports: WebMKS (AcquireTicket ->
   wss -> RFB on the ESXi host) or vim25 SOAP — screenshots (PNG),
@@ -84,7 +85,7 @@ Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 {"mcpServers": {"vcenter": {"command": "php", "args": ["/home/<you>/.local/bin/vcenter-mcp.phar", "--config=/home/<you>/.config/vcenter-mcp/instances.json"]}}}
 ```
 
-### Tools (32)
+### Tools (34)
 
 | Area | Tools |
 |---|---|
@@ -92,6 +93,7 @@ Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 | Inventory | `list_datacenters`, `list_clusters`, `list_hosts`, `list_datastores`, `list_networks`, `list_folders`, `list_resource_pools`, `list_vms`, `browse_datastore` |
 | VM | `get_vm`, `create_vm`, `delete_vm`, `set_vm_hardware` |
 | Devices | `list_cdroms`, `attach_iso`, `detach_iso`, `list_disks`, `add_disk`, `list_nics`, `add_nic`, `set_boot` |
+| Video | `get_video`, `set_video` |
 | Power | `vm_power`, `get_vm_power` |
 | Guest | `get_guest_info`, `find_vm_ip` |
 | Console | `vm_screenshot`, `vm_send_keys`, `get_vm_question`, `answer_vm_question`, `vm_console_info` |

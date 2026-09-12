@@ -409,6 +409,53 @@ class SoapClient
 			. '<answerChoice>' . self::esc($choice) . '</answerChoice>');
 	}
 
+	/**
+	 * config.hardware.device with per-device xsi:type preserved — the
+	 * generic properties() path flattens ArrayOfVirtualDevice entries
+	 * into typeless arrays, and the video card cannot be told apart
+	 * from e.g. a controller without the concrete type.
+	 *
+	 * @param  string $vmId VM MoRef id
+	 * @return array<int,array{device:string,key:int,...}> One entry per
+	 *         VirtualDevice; 'device' is the concrete xsi type
+	 * @throws VCenterException
+	 */
+	public function vmHardwareDevices(string $vmId): array
+	{
+		$content = $this->serviceContent();
+		$pc = $content['propertyCollector'];
+		$ret = $this->invokeAuthed('RetrievePropertiesEx', 'PropertyCollector', $pc['id'],
+			'<specSet>'
+			. '<propSet><type>VirtualMachine</type><pathSet>config.hardware.device</pathSet></propSet>'
+			. '<objectSet><obj type="VirtualMachine">' . self::esc($vmId) . '</obj></objectSet>'
+			. '</specSet><options/>');
+
+		$xsi = 'http://www.w3.org/2001/XMLSchema-instance';
+		$devices = [];
+		foreach ($ret->xpath('.//*[local-name()="propSet"]/*[local-name()="val"]/*') as $device) {
+			$type = (string) preg_replace('/^.*:/', '', (string) $device->attributes($xsi)['type']);
+			$devices[] = ['device' => $type] + (array) self::xmlToArray($device);
+		}
+		return $devices;
+	}
+
+	/**
+	 * ReconfigVM_Task with a device-change spec; returns the Task MoRef.
+	 *
+	 * @param  array{type:string,id:string} $vm              VirtualMachine MoRef
+	 * @param  string                       $deviceChangeXml Inner <deviceChange> XML (pre-escaped)
+	 * @return array{type:string,id:string} Task MoRef
+	 * @throws VCenterException
+	 */
+	public function reconfigVm(array $vm, string $deviceChangeXml): array
+	{
+		$ret = $this->invokeAuthed('ReconfigVM_Task', $vm['type'], $vm['id'],
+			'<spec xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+			. $deviceChangeXml
+			. '</spec>');
+		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
 	// ── Internals ────────────────────────────────────────────────────
 
 	private function doRetrieveProperties(array $objects, array $propsByType): array

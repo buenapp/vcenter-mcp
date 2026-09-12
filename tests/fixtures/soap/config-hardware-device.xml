@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet>
+            <name>config.hardware.device</name>
+            <val xsi:type="ArrayOfVirtualDevice">
+              <VirtualDevice xsi:type="VirtualLsiLogicController">
+                <key>1000</key>
+                <deviceInfo>
+                  <label>SCSI controller 0</label>
+                  <summary>LSI Logic</summary>
+                </deviceInfo>
+                <controllerKey>100</controllerKey>
+                <unitNumber>3</unitNumber>
+                <busNumber>0</busNumber>
+                <sharedBus>noSharing</sharedBus>
+              </VirtualDevice>
+              <VirtualDevice xsi:type="VirtualMachineVideoCard">
+                <key>400</key>
+                <deviceInfo>
+                  <label>Video card</label>
+                  <summary>Video card</summary>
+                </deviceInfo>
+                <controllerKey>100</controllerKey>
+                <unitNumber>17</unitNumber>
+                <videoRamSizeInKB>8192</videoRamSizeInKB>
+                <numDisplays>1</numDisplays>
+                <useAutoDetect>false</useAutoDetect>
+                <enable3DSupport>false</enable3DSupport>
+                <graphicsMemorySizeInKB>262144</graphicsMemorySizeInKB>
+              </VirtualDevice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
