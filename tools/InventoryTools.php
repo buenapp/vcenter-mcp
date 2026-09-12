@@ -169,4 +169,31 @@ class InventoryTools
 	{
 		return $this->manager->instance($instance)->inventory()->browseDatastore($datastore, $path, $pattern, $datacenter);
 	}
+
+	#[McpTool(
+		name: 'read_datastore_file',
+		description: 'Read a file from a datastore (e.g. a .vmx for settings the REST API does not model). UTF-8 text is returned verbatim, binary payloads base64-encoded; capped at 8 MiB. Use browse_datastore to locate files first.',
+		readOnlyHint: true,
+		inputSchema: [
+			'type' => 'object',
+			'properties' => [
+				'datastore' => ['type' => 'string', 'description' => 'Datastore name or id'],
+				'path' => ['type' => 'string', 'description' => 'File path relative to the datastore root'],
+				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+			],
+			'required' => ['datastore', 'path'],
+		]
+	)]
+	public function read_datastore_file(string $datastore, string $path, ?string $datacenter = null, string $instance = ''): array
+	{
+		$result = $this->manager->instance($instance)->inventory()->readDatastoreFile($datastore, $path, $datacenter);
+		if (preg_match('//u', $result['content']) !== 1) {
+			$result['content'] = base64_encode($result['content']);
+			$result['encoding'] = 'base64';
+		} else {
+			$result['encoding'] = 'utf-8';
+		}
+		return $result;
+	}
 }

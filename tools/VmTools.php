@@ -68,7 +68,7 @@ class VmTools
 
 	#[McpTool(
 		name: 'create_vm',
-		description: 'Create a VM. Host exclusion is enforced; when host/datastore are omitted, a non-excluded host and the host-visible datastore with most free space are chosen automatically. With iso, boot order is CDROM then DISK.',
+		description: 'Create a VM. Host exclusion is enforced; when host/datastore are omitted, a non-excluded host and the host-visible datastore with most free space are chosen automatically. With iso, boot order is CDROM then DISK. Accepts a hardware version (e.g. VMX_21) via version.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -88,6 +88,7 @@ class VmTools
 				'firmware' => ['type' => 'string', 'description' => 'EFI or BIOS (default EFI)'],
 				'nic_type' => ['type' => 'string', 'description' => 'NIC adapter type (default VMXNET3)'],
 				'scsi_type' => ['type' => 'string', 'description' => 'SCSI adapter type (default PVSCSI)'],
+				'version' => ['type' => 'string', 'description' => 'VM hardware version (e.g. VMX_21); default: vCenter default'],
 				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
 			],
 			'required' => ['name'],
@@ -110,11 +111,19 @@ class VmTools
 		string $firmware = 'EFI',
 		string $nic_type = 'VMXNET3',
 		string $scsi_type = 'PVSCSI',
+		?string $version = null,
 		string $instance = ''
 	): array {
 		$inst = $this->manager->instance($instance);
 		$inv = $inst->inventory();
 		$defaults = $inst->defaults();
+
+		if ($version !== null && preg_match('/^VMX_\d+$/i', $version) !== 1) {
+			throw new VCenterException(
+				"Invalid hardware version '{$version}' — expected VMX_<n> (e.g. VMX_21)",
+				0, 'InvalidArgument'
+			);
+		}
 
 		$datacenter = $datacenter ?? ($defaults['datacenter'] ?? null);
 		$cluster = $cluster ?? ($defaults['cluster'] ?? null);
@@ -184,6 +193,10 @@ class VmTools
 			]],
 			'boot' => ['type' => strtoupper($firmware)],
 		];
+
+		if ($version !== null) {
+			$body['hardware_version'] = strtoupper($version);
+		}
 
 		if ($iso !== null) {
 			$body['sata_adapters'] = [['type' => 'AHCI', 'bus' => 0]];

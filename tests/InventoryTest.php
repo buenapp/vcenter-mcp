@@ -150,4 +150,73 @@ class InventoryTest extends TestCase
 		$best = $this->instance($fake->callable())->inventory()->pickDatastore('host-12');
 		$this->assertSame('datastore-22', $best['datastore']);
 	}
+
+	/** Fake for readDatastoreFile: datastore resolution + datacenter walk. */
+	private function fakeDatastoreRead(FakeHttp $fake): FakeHttp
+	{
+		$fake->on('POST', '/api/session', fn() => ['code' => 200, 'body' => '"tok"']);
+		$fake->on('GET', '/api/vcenter/datastore', fn(array $c) => str_contains($c['url'], 'names=CDImages')
+			? ['code' => 200, 'body' => '[{"datastore":"datastore-21","name":"CDImages","type":"NFS"}]']
+			: ['code' => 200, 'body' => '[]']);
+		$fixture = fn(string $n) => file_get_contents(__DIR__ . '/fixtures/soap/' . $n);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'RetrieveServiceContent'),
+			fn() => ['code' => 200, 'body' => $fixture('service-content.xml')]);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', '<Login '),
+			fn() => ['code' => 200, 'body' => $fixture('login-response.xml'), 'headers' => FakeHttp::soapSessionHeaders()]);
+		// datacenterOf walk: Datastore -> Folder -> Datacenter
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'RetrievePropertiesEx'), function (array $c) {
+			$objects = str_contains($c['body'], '>datastore-21<')
+				? '<obj type="Datastore">datastore-21</obj><propSet><name>parent</name><val type="Folder" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">group-s4</val></propSet>'
+				: (str_contains($c['body'], '>group-s4<')
+					? '<obj type="Folder">group-s4</obj><propSet><name>parent</name><val type="Datacenter" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">datacenter-1</val></propSet><propSet><name>name</name><val>datastores</val></propSet>'
+					: '<obj type="Datacenter">datacenter-1</obj><propSet><name>name</name><val>DC1</val></propSet>');
+			return ['code' => 200, 'body' => '<?xml version="1.0"?>'
+				. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>'
+				. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>' . $objects
+				. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>'];
+		});
+		return $fake;
+	}
+
+	public function testReadDatastoreFile(): void
+	{
+		$fake = $this->fakeDatastoreRead(new FakeHttp());
+		$fake->on('GET', '/folder/', fn(array $c) => ['code' => 200, 'body' => ".encoding = \"UTF-8\"\nguestOS = \"freebsdGuest64\"\n"]);
+
+		$result = $this->instance($fake->callable())->inventory()->readDatastoreFile('CDImages', 'vm-42/vm-42.vmx');
+
+		$this->assertSame('[CDImages] vm-42/vm-42.vmx', $result['path']);
+		$this->assertStringContainsString('freebsdGuest64', $result['content']);
+		$this->assertSame(strlen($result['content']), $result['size']);
+
+		$get = $fake->calls('GET', '/folder/')[0];
+		$this->assertStringContainsString('dcPath=DC1', $get['url']);
+		$this->assertStringContainsString('dsName=CDImages', $get['url']);
+	}
+
+	public function testReadDatastoreFileHttpError(): void
+	{
+		$fake = $this->fakeDatastoreRead(new FakeHttp());
+		$fake->on('GET', '/folder/', fn() => ['code' => 404, 'body' => '']);
+
+		try {
+			$this->instance($fake->callable())->inventory()->readDatastoreFile('CDImages', 'vm-42/vm-42.vmx');
+			$this->fail('expected VCenterException');
+		} catch (VCenterException $e) {
+			$this->assertSame('Download', $e->getErrorType());
+		}
+	}
+
+	public function testReadDatastoreFileSizeCap(): void
+	{
+		$fake = $this->fakeDatastoreRead(new FakeHttp());
+		$fake->on('GET', '/folder/', fn() => ['code' => 200, 'body' => str_repeat('x', 8388609)]);
+
+		try {
+			$this->instance($fake->callable())->inventory()->readDatastoreFile('CDImages', 'big.bin');
+			$this->fail('expected VCenterException');
+		} catch (VCenterException $e) {
+			$this->assertSame('TooLarge', $e->getErrorType());
+		}
+	}
 }

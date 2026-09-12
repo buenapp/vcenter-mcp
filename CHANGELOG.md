@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.1] - 2026-09-12
 
 ### Added
 
@@ -11,6 +11,15 @@
   `PowerStateError` (REST pre-check plus InvalidPowerState fault
   mapping). `use_auto_detect=true` rejects explicit
   `video_ram_size_kb`/`num_displays` instead of silently dropping them.
+- `read_datastore_file`: read a datastore file (e.g. a .vmx) via the
+  /folder HTTP download. UTF-8 text verbatim, binary base64; 8 MiB cap.
+- `create_vm` accepts `version` (VM hardware version, e.g. VMX_21).
+
+### Fixed
+
+- `Inventory::getDatastore` merges the datastore id into the detail
+  response (the real API omits it); create_vm auto datastore selection
+  previously produced a null placement and a bare 400.
 
 ## [0.1.0] - 2026-09-11
 

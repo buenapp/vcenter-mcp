@@ -45,10 +45,12 @@ class VmToolsTest extends TestCase
 			}
 			return ['code' => 200, 'body' => json_encode($hosts)];
 		});
+		// The real detail endpoint omits the datastore id; getDatastore()
+		// merges it back in.
 		$fake->on('GET', '/api/vcenter/datastore/datastore-21',
-			fn() => ['code' => 200, 'body' => '{"datastore":"datastore-21","name":"ds1","free_space":100,"capacity":200}']);
+			fn() => ['code' => 200, 'body' => '{"name":"ds1","free_space":100,"capacity":200}']);
 		$fake->on('GET', '/api/vcenter/datastore/datastore-22',
-			fn() => ['code' => 200, 'body' => '{"datastore":"datastore-22","name":"ds2","free_space":900,"capacity":1000}']);
+			fn() => ['code' => 200, 'body' => '{"name":"ds2","free_space":900,"capacity":1000}']);
 		$fake->on('GET', '/api/vcenter/network', fn() => ['code' => 200, 'body' =>
 			'[{"network":"network-1","name":"Default","type":"STANDARD_PORTGROUP"}]']);
 		$fake->on('GET', '/api/vcenter/folder', fn() => ['code' => 200, 'body' =>
@@ -157,6 +159,39 @@ class VmToolsTest extends TestCase
 		$this->assertSame('resgroup-77', $result['placement']['resource_pool']);
 		// the REST filter was scoped to the placed host
 		$this->assertStringContainsString('hosts=host-12', $fake->calls('GET', '/api/vcenter/resource-pool')[0]['url']);
+	}
+
+	public function testCreateVmVersionSetsHardwareVersion(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		$tools->create_vm('t4', version: 'vmx_21');
+
+		$body = json_decode($fake->calls('POST', '/api/vcenter/vm')[0]['body'], true);
+		$this->assertSame('VMX_21', $body['hardware_version']);
+	}
+
+	public function testCreateVmRejectsBadVersion(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		try {
+			$tools->create_vm('t5', version: '21');
+			$this->fail('expected VCenterException');
+		} catch (VCenterException $e) {
+			$this->assertSame('InvalidArgument', $e->getErrorType());
+		}
+		$this->assertSame([], $fake->calls('POST', '/api/vcenter/vm'));
+	}
+
+	public function testCreateVmWithoutVersionOmitsHardwareVersion(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		$tools->create_vm('t6');
+
+		$body = json_decode($fake->calls('POST', '/api/vcenter/vm')[0]['body'], true);
+		$this->assertArrayNotHasKey('hardware_version', $body);
 	}
 
 	public function testDeleteVmRefusesPoweredOnWithoutForce(): void

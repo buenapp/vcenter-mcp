@@ -81,7 +81,10 @@ class Inventory
 
 	public function getDatastore(string $id): array
 	{
-		return $this->instance->rest()->get('vcenter/datastore/' . rawurlencode($id)) ?? [];
+		// The detail endpoint omits the id (like the hardware endpoints);
+		// merge it back in so callers get a complete entry.
+		$detail = $this->instance->rest()->get('vcenter/datastore/' . rawurlencode($id));
+		return is_array($detail) ? ($detail + ['datastore' => $id]) : ['datastore' => $id];
 	}
 
 	public function listNetworks(?string $datacenter = null, ?string $type = null): array
@@ -288,6 +291,31 @@ class Inventory
 			$devices[] = is_array($detail) ? ($detail + [$idKey => $devId]) : [$idKey => $devId];
 		}
 		return $devices;
+	}
+
+	/**
+	 * Read a datastore file (e.g. a .vmx) via the /folder HTTP download
+	 * with the SOAP session cookie — the same transport Screenshot uses.
+	 * Refuses files over 8 MiB; returns raw bytes, callers pick an
+	 * encoding.
+	 *
+	 * @return array{path:string,size:int,content:string}
+	 * @throws VCenterException
+	 */
+	public function readDatastoreFile(string $datastore, string $path, ?string $datacenter = null): array
+	{
+		$ds = $this->resolveDatastore($datastore, $datacenter);
+		$dc = $this->instance->properties()->datacenterOf(['type' => 'Datastore', 'id' => $ds['datastore']]);
+		$datastorePath = "[{$ds['name']}] " . ltrim($path, '/');
+		$content = $this->instance->soap()->downloadDatastoreFile($datastorePath, $dc['name'], (string) $ds['name']);
+		$size = strlen($content);
+		if ($size > 8388608) {
+			throw new VCenterException(
+				"Datastore file {$datastorePath} is {$size} bytes — read_datastore_file is meant for text (max 8 MiB)",
+				0, 'TooLarge'
+			);
+		}
+		return ['path' => $datastorePath, 'size' => $size, 'content' => $content];
 	}
 
 	/**
