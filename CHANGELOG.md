@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.4] - 2026-09-13
+
+### Fixed
+
+- WebMKS `vm_screenshot` returned a stale frame on every call after the
+  first: the Framebuffer's painted coverage was never cleared, so the
+  update loop was skipped despite a fresh non-incremental
+  FramebufferUpdateRequest. Framebuffer gains reset(); screenshot()
+  resets before its initial request. Verified live against vm-15275
+  (baseline -> typed char -> restored, hashes confirm fresh frames).
+
 ## [0.1.1] - 2026-09-12
 
 ### Added
