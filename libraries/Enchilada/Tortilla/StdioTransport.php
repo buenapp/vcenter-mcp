@@ -99,6 +99,9 @@ class StdioTransport
 	/** @var string Partial-line carry buffer for stdin */
 	private string $buffer = '';
 
+	/** @var bool stdin reached EOF while a request was in flight; stop after it answers */
+	private bool $stdinEof = false;
+
 	/** @var array<int,array<string,mixed>> Requests queued behind the in-flight call */
 	private array $pending = [];
 
@@ -517,6 +520,18 @@ class StdioTransport
 	{
 		$chunk = fread($stream, 65536);
 		if ($chunk === false || ($chunk === '' && feof($stream))) {
+			// Do not lose an in-flight reply: 'printf req | server' closes
+			// stdin immediately after the request, and punting here would
+			// leave the caller with a closed stream and no response.
+			if ($this->loop !== null && $this->stdinWatcher !== null) {
+				$this->loop->cancel($this->stdinWatcher);
+				$this->stdinWatcher = null;
+			}
+			if ($this->inFlight || !empty($this->pending)) {
+				$this->stdinEof = true;
+				$this->log('stdin EOF; finishing in-flight request(s) before stopping');
+				return;
+			}
 			$this->log('stdin EOF, stopping');
 			$this->stop();
 			return;
@@ -592,6 +607,11 @@ class StdioTransport
 					$this->loop->delay(0.0, function () {
 						$this->drainPending();
 					});
+				} elseif ($this->stdinEof) {
+					// The request that outlived its stdin is answered;
+					// nothing further can arrive, shut down.
+					$this->log('in-flight request(s) answered after stdin EOF; stopping');
+					$this->stop();
 				}
 			}
 		});
