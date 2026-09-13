@@ -436,6 +436,14 @@ class StdioTransport
 		// That signal flows from the tool's own HTTP waits, not from
 		// the transport — the transport is stuck in dispatch() and has
 		// no loop to run a progress timer on.
+		// Consecutive stdin read errors that never report EOF. A brief
+		// transient (EINTR) retries silently; the failure mode that
+		// motivated this budget is the Windows anonymous pipe: once the
+		// host closes its end, ReadFile fails (ERROR_BROKEN_PIPE) while
+		// PHP's feof() still reports false, so without a bound the loop
+		// below spins on fgets() at full CPU for the lifetime of the
+		// orphaned process.
+		$stdinReadErrors = 0;
 		while ($this->running) {
 			if (function_exists('pcntl_signal_dispatch')) {
 				pcntl_signal_dispatch();
@@ -449,8 +457,16 @@ class StdioTransport
 					$this->log('stdin EOF, stopping');
 					break;
 				}
+				if (++$stdinReadErrors >= 10) {
+					$this->log('stdin read failed repeatedly without EOF (broken pipe?); treating as EOF and stopping');
+					break;
+				}
+				// Cheap spaced retries: this is error handling on the
+				// Windows blocking fallback, not readiness polling.
+				usleep(50000);
 				continue;
 			}
+			$stdinReadErrors = 0;
 
 			$this->noteWire();
 			$line = trim($line);

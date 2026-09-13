@@ -6,7 +6,7 @@
 
 define('APPLICATION_NAME', 'vCenter MCP Server');
 define('APPLICATION_SLUG', 'vcenter-mcp');
-define('APPLICATION_VERSION', '0.1.1');
+define('APPLICATION_VERSION', '0.1.2');
 define('APPLICATION_WEBSITE', 'https://pacyworld.dev/buenapp/vcenter-mcp');
 
 define('APPLICATION_ROOT', dirname(__DIR__) . DIRECTORY_SEPARATOR);
