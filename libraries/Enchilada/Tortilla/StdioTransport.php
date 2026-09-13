@@ -304,6 +304,22 @@ class StdioTransport
 				$mode = 'blocking';
 			}
 		}
+
+		if ($mode === 'reactor') {
+			// Reactor EOF delivery assumes a pollable stream. A regular
+			// file as stdin (`server < request.json`, the natural way to
+			// smoke-test a server) delivers bytes through EVFILT_READ but
+			// never reports another event once the final byte is consumed
+			// — EV_EOF would have to arrive as a state change on a fd that
+			// does not change — so the server would wait forever for more
+			// input. Blocking reads report EOF on regular files correctly;
+			// degrade instead of hanging.
+			$stat = fstat(STDIN);
+			if (is_array($stat) && ($stat['mode'] & 0170000) === 0100000) {   // S_ISREG
+				$this->log('NOTE stdin is a regular file; reactor I/O cannot observe its EOF — using blocking I/O');
+				$mode = 'blocking';
+			}
+		}
 		$this->resolvedMode = $mode;
 
 		if ($mode === 'reactor') {
