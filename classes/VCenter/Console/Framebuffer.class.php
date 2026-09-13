@@ -88,6 +88,14 @@ class Framebuffer
 		}
 	}
 
+	/** Mark every pixel unpainted; last-known pixels stay until fresh
+	 *  rectangles overwrite them. */
+	public function reset(): void
+	{
+		$this->painted = str_repeat("\0", $this->width * $this->height);
+		$this->paintedCount = 0;
+	}
+
 	/** Fraction of the frame painted (0.0 - 1.0). */
 	public function coverage(): float
 	{

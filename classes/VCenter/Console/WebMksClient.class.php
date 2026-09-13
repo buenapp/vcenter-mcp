@@ -274,6 +274,10 @@ class WebMksClient
 		$this->ensureOpen();
 		$deadline = microtime(true) + $timeout;
 
+		// Repaint from scratch: without this the previous capture's
+		// complete state shortcuts the update loop with stale pixels.
+		$this->framebuffer->reset();
+
 		$this->sendRfb(Rfb::setPixelFormat() . Rfb::setEncodings([0])
 			. Rfb::framebufferUpdateRequest(false, 0, 0, $this->fbWidth, $this->fbHeight));
 		$lastRequestAt = microtime(true);

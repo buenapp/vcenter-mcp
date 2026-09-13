@@ -27,6 +27,20 @@ class FramebufferTest extends TestCase
 		$this->assertSame("\xFF\x00\x00", substr($rgb, 2 * 3, 3)); // pixel (2,0) red
 	}
 
+	public function testResetClearsCoverageKeepsPixels(): void
+	{
+		$fb = new Framebuffer(2, 1);
+		$fb->blit(0, 0, 2, 1, str_repeat(pack('V', 0x00FF0000), 2));
+		$this->assertTrue($fb->complete());
+
+		$fb->reset();
+		$this->assertFalse($fb->complete());
+		$this->assertSame(0.0, $fb->coverage());
+
+		// last-known pixels survive until fresh rectangles overwrite them
+		$this->assertSame("\xFF\x00\x00\xFF\x00\x00", $fb->toRgb());
+	}
+
 	public function testBlitRejectsOutOfBounds(): void
 	{
 		$fb = new Framebuffer(4, 4);

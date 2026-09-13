@@ -145,6 +145,40 @@ class WebMksClientTest extends TestCase
 		$this->assertFalse($client->isOpen());
 	}
 
+	public function testSecondScreenshotCapturesFreshFrame(): void
+	{
+		$fake = new FakeHttp();
+		$this->ticketRoute($fake, $this->thumbprint('sha1'));
+
+		// all-green 4x2 frame, served in reply to the second FBU request
+		$greenFrame = chr(0) . "\x00" . pack('n', 1)
+			. pack('nnnnN', 0, 0, 4, 2, 0) . str_repeat(pack('V', 0x0000FF00), 8);
+
+		$requestCount = 0;
+		$transport = $this->fakeTransport($this->certPem(), $this->serverScript(),
+			function (FakeWsTransport $t, string $data) use (&$requestCount, $greenFrame) {
+				if (str_starts_with($data, 'GET ')) {
+					return;
+				}
+				[$frame] = WebSocketFrame::tryDecode($data);
+				if ($frame !== null && str_contains($frame->payload, "\x03")) {
+					$requestCount++;
+					if ($requestCount === 2) {
+						$t->feed(WebSocketFrame::binary($greenFrame, false)->encode());
+					}
+				}
+			});
+
+		$client = new WebMksClient($this->instance($fake), 'vm-42', fn() => $transport);
+		$client->open();
+
+		$first = $client->screenshot();
+		$second = $client->screenshot();
+		$this->assertGreaterThanOrEqual(2, $requestCount);
+		$this->assertNotSame($first['png'], $second['png'],
+			'second screenshot returned the cached first frame');
+	}
+
 	public function testTlsaTrustBasis(): void
 	{
 		$fake = new FakeHttp();
