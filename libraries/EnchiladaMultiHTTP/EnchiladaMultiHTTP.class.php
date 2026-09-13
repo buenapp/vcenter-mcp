@@ -383,7 +383,20 @@ class EnchiladaMultiHTTP {
 			} else {
 				$baseFormat = strtok($req['format'], ',');
 				if ($baseFormat === 'json' && !$req['sseDone'] && !str_contains($req['format'], 'sse')) {
-					$this->requests[$requestId]['result'] = $raw ? json_decode($raw, true) : false;
+					$decoded = $raw ? json_decode($raw, true) : false;
+					if ($decoded === null) {
+						// Un-decodable body (a proxy/gateway error page,
+						// truncated JSON, ...): the request IS finished —
+						// leaving result=null would make getResult() report
+						// "still in flight" forever and any poll-driven
+						// waiter would spin for the process lifetime.
+						$this->requests[$requestId]['result'] = false;
+						$this->requests[$requestId]['error'] = 'Invalid JSON in response body ('
+							. json_last_error_msg() . ', HTTP '
+							. $this->requests[$requestId]['http_code'] . ')';
+					} else {
+						$this->requests[$requestId]['result'] = $decoded;
+					}
 				} else {
 					// raw, or an SSE body: the caller parses frames itself
 					// (event-stream is not a single JSON document).
