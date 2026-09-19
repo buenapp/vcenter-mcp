@@ -4,6 +4,32 @@
 
 ### Added
 
+- SCSI storage visibility and control (issues #5 and #2):
+  - `list_controllers(vm)` — SCSI/SATA/NVMe controllers with type,
+    bus, hot-plug/sharing flags and attached unit numbers (vim25).
+  - `list_disks(vm)` reworked over vim25: every disk now reports
+    controller key + type, unit number, disk mode
+    (persistent / independent_persistent / independent_nonpersistent),
+    thin/thick provisioning and backing file. `get_vm` exposes the
+    same detail.
+  - `add_disk` extended with `controller_type`, `disk_mode` and
+    `thin`. The extended path goes through ReconfigVM_Task with
+    `fileOperation=create` (without it vCenter treats the add as
+    attaching an existing file and either fails or creates a phantom
+    0 KB disk). A missing controller type is created in the same call
+    (requires power-off); attaching to an existing controller works
+    hot.
+  - `set_disk(vm, disk, disk_mode)` — change an existing disk's mode
+    via ReconfigVM_Task (powered off). Provisioning is intentionally
+    not editable: vCenter silently ignores thinProvisioned on backing
+    edits, so thin/thick is chosen when the VMDK is created.
+  - `create_vm` accepts `controllers` (one SCSI adapter type per bus,
+    overrides `scsi_type`) and `disk_mode` (post-create vim25 edit of
+    the boot disk backing).
+  - `SoapClient::deleteVirtualDisk()` — DeleteVirtualDisk_Task for
+    removing standalone VMDK files.
+- `detach_iso` now auto-answers a blocking VM question (e.g. the
+  "CD-ROM door locked" prompt) and retries the reconfigure once.
 - Guest operations via VMware Tools (GuestOperationsManager over vim25
   SOAP), closing issue #4:
   - `guest_run` — StartProgramInGuest with a blocking wait on

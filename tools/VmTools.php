@@ -63,7 +63,12 @@ class VmTools
 	{
 		$inst = $this->manager->instance($instance);
 		$id = $inst->inventory()->resolveVm($vm)['vm'];
-		return $inst->rest()->get("vcenter/vm/{$id}") ?? [];
+		$summary = $inst->rest()->get("vcenter/vm/{$id}") ?? [];
+		// REST reports no controller type, disk mode or provisioning —
+		// those come from vim25 (config.hardware.device).
+		$summary['controllers'] = $inst->inventory()->vmStorageControllers($id);
+		$summary['disks'] = $inst->inventory()->vmStorageDisks($id);
+		return $summary;
 	}
 
 	#[McpTool(
@@ -81,13 +86,15 @@ class VmTools
 				'folder' => ['type' => 'string', 'description' => 'VM folder name or id'],
 				'resource_pool' => ['type' => 'string', 'description' => 'Resource pool name or id'],
 				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'guest_os' => ['type' => 'string', 'description' => 'Guest OS id (default FREEBSD_64)'],
+				'guest_os' => ['type' => 'string', 'description' => 'Guest OS id (default FREEBSD_14_64; FREEBSD_64 maps to the legacy pre-11 profile)'],
 				'cpu' => ['type' => 'integer', 'description' => 'vCPU count (default 2)'],
 				'memory_mib' => ['type' => 'integer', 'description' => 'Memory MiB (default 2048)'],
 				'disk_gib' => ['type' => 'integer', 'description' => 'Disk size GiB (default 20)'],
 				'firmware' => ['type' => 'string', 'description' => 'EFI or BIOS (default EFI)'],
 				'nic_type' => ['type' => 'string', 'description' => 'NIC adapter type (default VMXNET3)'],
-				'scsi_type' => ['type' => 'string', 'description' => 'SCSI adapter type (default PVSCSI)'],
+				'scsi_type' => ['type' => 'string', 'description' => 'SCSI adapter type for bus 0 (default PVSCSI); ignored when controllers is given'],
+				'controllers' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'SCSI adapter types, one per bus in order (BUSLOGIC, LSILOGIC, LSILOGICSAS, PVSCSI) — e.g. ["LSILOGICSAS","PVSCSI"] for an LSI SAS boot adapter plus a paravirtual data adapter'],
+				'disk_mode' => ['type' => 'string', 'description' => 'Boot disk mode: persistent (default), independent_persistent or independent_nonpersistent (applied via vim25 after create; provisioning follows the datastore default and cannot be changed by reconfig)'],
 				'version' => ['type' => 'string', 'description' => 'VM hardware version (e.g. VMX_21); default: vCenter default'],
 				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
 			],
@@ -104,13 +111,15 @@ class VmTools
 		?string $folder = null,
 		?string $resource_pool = null,
 		?string $datacenter = null,
-		string $guest_os = 'FREEBSD_64',
+		string $guest_os = 'FREEBSD_14_64',
 		int $cpu = 2,
 		int $memory_mib = 2048,
 		int $disk_gib = 20,
 		string $firmware = 'EFI',
 		string $nic_type = 'VMXNET3',
 		string $scsi_type = 'PVSCSI',
+		?array $controllers = null,
+		?string $disk_mode = null,
 		?string $version = null,
 		string $instance = ''
 	): array {
@@ -123,6 +132,23 @@ class VmTools
 				"Invalid hardware version '{$version}' — expected VMX_<n> (e.g. VMX_21)",
 				0, 'InvalidArgument'
 			);
+		}
+		if ($disk_mode !== null && !in_array($disk_mode, \VCenter\Inventory::DISK_MODES, true)) {
+			throw new VCenterException(
+				"Invalid disk_mode '{$disk_mode}' — expected one of: " . implode(', ', \VCenter\Inventory::DISK_MODES),
+				0, 'InvalidArgument'
+			);
+		}
+		$adapterTypes = ['BUSLOGIC', 'LSILOGIC', 'LSILOGICSAS', 'PVSCSI'];
+		if ($controllers !== null) {
+			$controllers = array_map(fn($t) => strtoupper((string) $t), $controllers);
+			if ($controllers === [] || count($controllers) > 4
+				|| array_diff($controllers, $adapterTypes) !== []) {
+				throw new VCenterException(
+					'Invalid controllers — 1-4 adapter types from: ' . implode(', ', $adapterTypes),
+					0, 'InvalidArgument'
+				);
+			}
 		}
 
 		$datacenter = $datacenter ?? ($defaults['datacenter'] ?? null);
@@ -184,7 +210,9 @@ class VmTools
 			],
 			'cpu' => ['count' => $cpu, 'cores_per_socket' => 1],
 			'memory' => ['size_MiB' => $memory_mib],
-			'scsi_adapters' => [['type' => $scsi_type, 'bus' => 0]],
+			'scsi_adapters' => $controllers !== null
+				? array_map(fn($t, $bus) => ['type' => $t, 'bus' => $bus], $controllers, array_keys($controllers))
+				: [['type' => $scsi_type, 'bus' => 0]],
 			'disks' => [['type' => 'SCSI', 'new_vmdk' => ['capacity' => $disk_gib * 1073741824]]],
 			'nics' => [[
 				'type' => $nic_type,
@@ -211,11 +239,50 @@ class VmTools
 		$result = $inst->rest()->post('vcenter/vm', $body);
 		$vmId = is_string($result) ? $result : ($result['vm'] ?? (string) $result);
 
+		// Boot disk mode is not expressible in the REST create spec;
+		// edit the backing over vim25 while the VM is off.
+		if ($disk_mode !== null) {
+			$this->setBootDiskBacking($inst, $vmId, $disk_mode);
+		}
+
 		return [
 			'vm' => $vmId,
 			'placement' => $body['placement'],
 			'summary' => $inst->rest()->get("vcenter/vm/{$vmId}"),
 		];
+	}
+
+	/**
+	 * Edit the first disk's FlatVer2 backing mode on a freshly created,
+	 * powered-off VM via ReconfigVM_Task.
+	 *
+	 * @throws VCenterException
+	 */
+	private function setBootDiskBacking(\VCenter\Instance $inst, string $vmId, string $diskMode): void
+	{
+		$device = null;
+		foreach ($inst->soap()->vmHardwareDevices($vmId) as $d) {
+			if (($d['device'] ?? '') === 'VirtualDisk') {
+				$device = $d;
+				break;
+			}
+		}
+		if ($device === null) {
+			throw new VCenterException("VM {$vmId} has no disk to set the mode on", 0, 'NotFound');
+		}
+		$deviceChange = '<deviceChange><operation>edit</operation>'
+			. '<device xsi:type="VirtualDisk">'
+			. '<key>' . (int) $device['key'] . '</key>'
+			. '<backing xsi:type="VirtualDiskFlatVer2BackingInfo">'
+			. '<fileName>' . \VCenter\SoapClient::esc((string) ($device['backing']['fileName'] ?? '')) . '</fileName>'
+			. '<diskMode>' . $diskMode . '</diskMode>'
+			. '</backing>'
+			. '<controllerKey>' . (int) ($device['controllerKey'] ?? 0) . '</controllerKey>'
+			. '<unitNumber>' . (int) ($device['unitNumber'] ?? 0) . '</unitNumber>'
+			. '<capacityInKB>' . (int) ($device['capacityInKB'] ?? 0) . '</capacityInKB>'
+			. '</device></deviceChange>';
+		$task = $inst->soap()->reconfigVm(['type' => 'VirtualMachine', 'id' => $vmId], $deviceChange);
+		$inst->tasks()->wait($task);
 	}
 
 	#[McpTool(

@@ -199,9 +199,10 @@ InventoryTools (all readOnly)
 
 VmTools
 - `list_vms(names?, hosts?, power_states?, folders?)`, `get_vm(vm)` (hardware, disks, nics+MACs, cdroms, boot, power)
-- `create_vm(name, host?, cluster?, datastore?, network, iso?, folder?, resource_pool?, guest_os='FREEBSD_64', cpu=2, memory_mib=2048, disk_gib=20, firmware='EFI', nic_type='VMXNET3', scsi_type='PVSCSI')`
+- `create_vm(name, host?, cluster?, datastore?, network, iso?, folder?, resource_pool?, guest_os='FREEBSD_14_64', cpu=2, memory_mib=2048, disk_gib=20, firmware='EFI', nic_type='VMXNET3', scsi_type='PVSCSI', controllers?, disk_mode?, version?)`
   - Host exclusion is enforced here: an explicit excluded host is rejected; when `host` is omitted the tool picks a `CONNECTED`/`POWERED_ON` non-excluded host (in the cluster/datacenter if given) and, when `datastore` is omitted, the host-visible datastore with most free space (host `datastore` property via SOAP).
   - With `iso`, boot order is CDROM then DISK.
+  - `controllers` is one SCSI adapter type per bus (overrides `scsi_type`); `disk_mode` edits the boot disk backing over vim25 after create.
 - `delete_vm(vm, force=false)` — refuses a powered-on VM unless `force` (then powers off first)
 - `set_vm_hardware(vm, cpu?, memory_mib?)`
 
@@ -209,8 +210,11 @@ PowerTools
 - `vm_power(vm, action: on|off|reset|suspend|shutdown_guest|reboot_guest)`, `get_vm_power(vm)` (readOnly)
 
 DeviceTools
-- `list_cdroms(vm)`, `attach_iso(vm, iso, cdrom?)` (PATCH existing / POST new SATA; connects when powered on), `detach_iso(vm, cdrom?)` (disconnect + `CLIENT_DEVICE` backing)
-- `list_disks(vm)`, `add_disk(vm, size_gib)`
+- `list_cdroms(vm)`, `attach_iso(vm, iso, cdrom?)` (PATCH existing / POST new SATA; connects when powered on), `detach_iso(vm, cdrom?)` (disconnect + `CLIENT_DEVICE` backing; auto-answers a blocking question and retries once)
+- `list_controllers(vm)` — SCSI/SATA/NVMe controllers with type, bus and attached units (vim25)
+- `list_disks(vm)` — vim25 detail: controller binding, unit, disk mode, thin/thick, backing file
+- `add_disk(vm, size_gib, controller_type?, disk_mode?, thin?)` — extended path uses ReconfigVM_Task with `fileOperation=create`; creating a missing controller requires power-off, attaching to an existing controller works hot
+- `set_disk(vm, disk, disk_mode)` — mode change via ReconfigVM_Task (powered off); thin/thick is not editable (vCenter ignores thinProvisioned on backing edits)
 - `list_nics(vm)`, `add_nic(vm, network, type='VMXNET3')`
 - `set_boot(vm, firmware?, order?: [CDROM, DISK, ETHERNET], enter_setup_mode?)`
 

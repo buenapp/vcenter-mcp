@@ -293,6 +293,95 @@ class Inventory
 		return $devices;
 	}
 
+	/** SCSI controller device class => short type label. */
+	public const SCSI_CONTROLLER_TYPES = [
+		'VirtualBusLogicController' => 'buslogic',
+		'VirtualLsiLogicController' => 'lsilogic',
+		'VirtualLsiLogicSASController' => 'lsilogic-sas',
+		'ParaVirtualSCSIController' => 'paravirtual',
+	];
+
+	/** Short type label => SCSI controller device class. */
+	public const SCSI_CONTROLLER_CLASSES = [
+		'buslogic' => 'VirtualBusLogicController',
+		'lsilogic' => 'VirtualLsiLogicController',
+		'lsilogic-sas' => 'VirtualLsiLogicSASController',
+		'paravirtual' => 'ParaVirtualSCSIController',
+	];
+
+	/** Valid disk modes for a flat (FlatVer2) backing. */
+	public const DISK_MODES = ['persistent', 'independent_persistent', 'independent_nonpersistent'];
+
+	/**
+	 * The VM's SCSI controllers, shaped for tool output. Read via vim25
+	 * (config.hardware.device) — REST does not model controller types.
+	 *
+	 * @return array<int,array{key:int,label:string,controller_type:string,bus_number:int,shared_bus:string}>
+	 * @throws VCenterException
+	 */
+	public function vmStorageControllers(string $vmId): array
+	{
+		$controllers = [];
+		foreach ($this->instance->soap()->vmHardwareDevices($vmId) as $device) {
+			$type = self::SCSI_CONTROLLER_TYPES[$device['device'] ?? ''] ?? null;
+			if ($type === null) {
+				continue;
+			}
+			$controllers[] = [
+				'key' => (int) ($device['key'] ?? 0),
+				'label' => (string) ($device['deviceInfo']['label'] ?? ''),
+				'controller_type' => $type,
+				'bus_number' => (int) ($device['busNumber'] ?? 0),
+				'shared_bus' => (string) ($device['sharedBus'] ?? 'noSharing'),
+			];
+		}
+		return $controllers;
+	}
+
+	/**
+	 * The VM's disks with their controller binding, mode and
+	 * provisioning, shaped for tool output. Read via vim25 — REST
+	 * reports none of controller type, disk mode or thin/thick.
+	 *
+	 * @return array<int,array> shaped disk entries
+	 * @throws VCenterException
+	 */
+	public function vmStorageDisks(string $vmId): array
+	{
+		$controllers = [];
+		foreach ($this->vmStorageControllers($vmId) as $c) {
+			$controllers[$c['key']] = $c['controller_type'];
+		}
+		$disks = [];
+		foreach ($this->instance->soap()->vmHardwareDevices($vmId) as $device) {
+			if (($device['device'] ?? '') !== 'VirtualDisk') {
+				continue;
+			}
+			$backing = is_array($device['backing'] ?? null) ? $device['backing'] : [];
+			$capacityKb = (int) ($device['capacityInKB'] ?? 0);
+			$controllerKey = (int) ($device['controllerKey'] ?? 0);
+			$disks[] = [
+				'disk' => (string) ($device['key'] ?? ''),
+				'label' => (string) ($device['deviceInfo']['label'] ?? ''),
+				'capacity' => $capacityKb * 1024,
+				'capacity_gib' => round($capacityKb / 1048576, 2),
+				'controller_key' => $controllerKey,
+				'controller_type' => $controllers[$controllerKey] ?? null,
+				'unit_number' => (int) ($device['unitNumber'] ?? 0),
+				'disk_mode' => (string) ($backing['diskMode'] ?? 'persistent'),
+				'thin_provisioned' => self::truthy($backing['thinProvisioned'] ?? false),
+				'file' => (string) ($backing['fileName'] ?? ''),
+			];
+		}
+		return $disks;
+	}
+
+	/** vim25 booleans arrive as the strings "true"/"false" when the leaf carries no xsi:type. */
+	private static function truthy(mixed $v): bool
+	{
+		return $v === true || $v === 1 || $v === 'true' || $v === '1';
+	}
+
 	/**
 	 * Read a datastore file (e.g. a .vmx) via the /folder HTTP download
 	 * with the SOAP session cookie — the same transport Screenshot uses.

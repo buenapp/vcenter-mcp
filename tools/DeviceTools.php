@@ -140,18 +140,30 @@ class DeviceTools
 			$cdrom = $existing[0]['cdrom'] ?? null;
 		}
 
-		try {
-			$this->reconfigure($inst, $id,
-				fn() => $inst->rest()->post("vcenter/vm/{$id}/hardware/cdrom/{$cdrom}", null, ['action' => 'disconnect']));
-		} catch (VCenterException $e) {
-			if ($e->getErrorType() === 'QuestionPending') {
-				throw $e;
+		$answered = false;
+		for ($attempt = 0; ; $attempt++) {
+			try {
+				$this->reconfigure($inst, $id,
+					fn() => $inst->rest()->post("vcenter/vm/{$id}/hardware/cdrom/{$cdrom}", null, ['action' => 'disconnect']));
+				break;
+			} catch (VCenterException $e) {
+				if ($e->getErrorType() === 'QuestionPending') {
+					// A guest-locked CD-ROM door raises a blocking question
+					// whose answer is the point of the detach — say yes
+					// and finish the reconfigure in the same call.
+					if (!$answered && $this->answerBlockingQuestion($inst, $id, 'button.yes')) {
+						$answered = true;
+						continue;
+					}
+					throw $e;
+				}
+				// already disconnected — proceed to re-back
+				break;
 			}
-			// already disconnected — proceed to re-back
 		}
 		$this->reconfigure($inst, $id,
 			fn() => $inst->rest()->patch("vcenter/vm/{$id}/hardware/cdrom/{$cdrom}", ['backing' => ['type' => 'CLIENT_DEVICE']]));
-		return ['vm' => $id, 'cdrom' => $cdrom, 'detached' => true];
+		return ['vm' => $id, 'cdrom' => $cdrom, 'detached' => true, 'question_answered' => $answered];
 	}
 
 	/**
@@ -195,9 +207,35 @@ class DeviceTools
 		}
 	}
 
+	/**
+	 * Answer the VM's currently pending question with the given choice
+	 * (only when the choice is offered). Returns false when there is no
+	 * pending question or the choice is not one of its options.
+	 */
+	private function answerBlockingQuestion(\VCenter\Instance $inst, string $vmId, string $choice): bool
+	{
+		try {
+			$props = $inst->properties()->get('VirtualMachine', $vmId, ['runtime.question']);
+			$question = $props['runtime.question'] ?? null;
+		} catch (VCenterException) {
+			return false;
+		}
+		if (!is_array($question) || empty($question['id'])) {
+			return false;
+		}
+		foreach ((array) ($question['choice']['choiceInfo'] ?? []) as $c) {
+			if (($c['key'] ?? '') === $choice) {
+				$inst->soap()->answerVm(['type' => 'VirtualMachine', 'id' => $vmId],
+					(string) $question['id'], $choice);
+				return true;
+			}
+		}
+		return false;
+	}
+
 	#[McpTool(
 		name: 'list_disks',
-		description: 'List a VM\'s disks.',
+		description: 'List a VM\'s disks with their controller binding (key, type, unit number), disk mode (persistent / independent_persistent / independent_nonpersistent) and provisioning (thin/thick). Read via vim25 SOAP; the REST API reports none of these.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
@@ -212,31 +250,275 @@ class DeviceTools
 	{
 		$inst = $this->inst($instance);
 		$id = $this->vmId($inst, $vm);
-		return $inst->inventory()->vmDevices($id, 'disk');
+		return $inst->inventory()->vmStorageDisks($id);
+	}
+
+	#[McpTool(
+		name: 'list_controllers',
+		description: 'List a VM\'s SCSI controllers with key, bus number and type (buslogic / lsilogic / lsilogic-sas / paravirtual). Read via vim25 SOAP; the REST API does not model controller types.',
+		readOnlyHint: true,
+		inputSchema: [
+			'type' => 'object',
+			'properties' => [
+				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+			],
+			'required' => ['vm'],
+		]
+	)]
+	public function list_controllers(string $vm, string $instance = ''): array
+	{
+		$inst = $this->inst($instance);
+		$id = $this->vmId($inst, $vm);
+		return $inst->inventory()->vmStorageControllers($id);
 	}
 
 	#[McpTool(
 		name: 'add_disk',
-		description: 'Add a new SCSI disk to a VM.',
+		description: 'Add a new SCSI disk to a VM. Without further options it attaches to an existing controller via REST. With controller_type (buslogic / lsilogic / lsilogic-sas / paravirtual), disk_mode (persistent / independent_persistent / independent_nonpersistent) and/or thin, the disk (and the controller, when none of that type exists) is created in one ReconfigVM_Task over vim25 — creating a controller requires the VM powered off.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'size_gib' => ['type' => 'integer', 'description' => 'Disk size in GiB'],
+				'controller_type' => ['type' => 'string', 'description' => 'Controller type to attach to (created when absent): buslogic, lsilogic, lsilogic-sas, paravirtual'],
+				'disk_mode' => ['type' => 'string', 'description' => 'persistent (default), independent_persistent or independent_nonpersistent'],
+				'thin' => ['type' => 'boolean', 'description' => 'Thin-provision the new VMDK'],
 				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
 			],
 			'required' => ['vm', 'size_gib'],
 		]
 	)]
-	public function add_disk(string $vm, int $size_gib, string $instance = ''): array
-	{
+	public function add_disk(
+		string $vm, int $size_gib, ?string $controller_type = null,
+		?string $disk_mode = null, ?bool $thin = null, string $instance = ''
+	): array {
 		$inst = $this->inst($instance);
 		$id = $this->vmId($inst, $vm);
-		$result = $inst->rest()->post("vcenter/vm/{$id}/hardware/disk", [
-			'type' => 'SCSI',
-			'new_vmdk' => ['capacity' => $size_gib * 1073741824],
-		]);
-		return ['vm' => $id, 'disk' => $result];
+
+		if ($controller_type === null && $disk_mode === null && $thin === null) {
+			$result = $inst->rest()->post("vcenter/vm/{$id}/hardware/disk", [
+				'type' => 'SCSI',
+				'new_vmdk' => ['capacity' => $size_gib * 1073741824],
+			]);
+			return ['vm' => $id, 'disk' => $result];
+		}
+
+		if ($disk_mode !== null && !in_array($disk_mode, \VCenter\Inventory::DISK_MODES, true)) {
+			throw new VCenterException(
+				"Invalid disk_mode '{$disk_mode}' — expected one of: " . implode(', ', \VCenter\Inventory::DISK_MODES),
+				0, 'InvalidArgument'
+			);
+		}
+
+		$devices = $inst->soap()->vmHardwareDevices($id);
+		$controllers = $inst->inventory()->vmStorageControllers($id);
+
+		// Target controller: an existing one of the requested type, else
+		// the first controller, else one to be created.
+		$target = null;
+		if ($controller_type !== null) {
+			foreach ($controllers as $c) {
+				if ($c['controller_type'] === $controller_type) {
+					$target = $c;
+					break;
+				}
+			}
+		} elseif ($controllers !== []) {
+			$target = $controllers[0];
+		}
+
+		$deviceChange = '';
+		$controllerKey = null;
+		$createType = null;
+		if ($target !== null) {
+			$controllerKey = $target['key'];
+		} else {
+			$createType = $controller_type ?? 'lsilogic-sas';
+			$class = \VCenter\Inventory::SCSI_CONTROLLER_CLASSES[$createType] ?? null;
+			if ($class === null) {
+				throw new VCenterException(
+					"Invalid controller_type '{$createType}' — expected one of: " . implode(', ', array_keys(\VCenter\Inventory::SCSI_CONTROLLER_CLASSES)),
+					0, 'InvalidArgument'
+				);
+			}
+			// Adding a controller cannot be hot-plugged.
+			$this->requirePoweredOff($inst, $id, 'Adding a SCSI controller');
+			$usedBuses = array_map(fn($c) => $c['bus_number'], $controllers);
+			$bus = null;
+			for ($b = 0; $b < 4; $b++) {
+				if (!in_array($b, $usedBuses, true)) {
+					$bus = $b;
+					break;
+				}
+			}
+			if ($bus === null) {
+				throw new VCenterException('All 4 SCSI controller buses are in use', 0, 'NoPlacement');
+			}
+			$controllerKey = -100 - $bus;
+			$deviceChange .= '<deviceChange><operation>add</operation>'
+				. '<device xsi:type="' . $class . '">'
+				. '<key>' . $controllerKey . '</key>'
+				. '<busNumber>' . $bus . '</busNumber>'
+				. '<sharedBus>noSharing</sharedBus>'
+				. '</device></deviceChange>';
+		}
+
+		// Next free unit on the target controller (0-15, skipping 7).
+		$usedUnits = [];
+		foreach ($devices as $device) {
+			if (($device['device'] ?? '') === 'VirtualDisk'
+				&& (int) ($device['controllerKey'] ?? 0) === $controllerKey) {
+				$usedUnits[] = (int) ($device['unitNumber'] ?? 0);
+			}
+		}
+		$unit = null;
+		for ($u = 0; $u < 16; $u++) {
+			if ($u !== 7 && !in_array($u, $usedUnits, true)) {
+				$unit = $u;
+				break;
+			}
+		}
+		if ($unit === null) {
+			throw new VCenterException("No free unit on controller {$controllerKey}", 0, 'NoPlacement');
+		}
+
+		$backing = '<backing xsi:type="VirtualDiskFlatVer2BackingInfo">'
+			. '<fileName></fileName>'
+			. '<diskMode>' . ($disk_mode ?? 'persistent') . '</diskMode>'
+			. ($thin !== null ? '<thinProvisioned>' . ($thin ? 'true' : 'false') . '</thinProvisioned>' : '')
+			. '</backing>';
+		// fileOperation=create tells vCenter to create the VMDK; without
+		// it the add is treated as attaching an existing file.
+		$deviceChange .= '<deviceChange><operation>add</operation>'
+			. '<fileOperation>create</fileOperation>'
+			. '<device xsi:type="VirtualDisk">'
+			. '<key>-200</key>'
+			. $backing
+			. '<controllerKey>' . $controllerKey . '</controllerKey>'
+			. '<unitNumber>' . $unit . '</unitNumber>'
+			. '<capacityInKB>' . ($size_gib * 1048576) . '</capacityInKB>'
+			. '</device></deviceChange>';
+
+		$this->reconfigureStorage($inst, $id, $deviceChange);
+
+		// Re-read and return the disk that landed on the target unit.
+		foreach ($inst->inventory()->vmStorageDisks($id) as $disk) {
+			if ($disk['unit_number'] === $unit
+				&& ($target === null || $disk['controller_key'] === $target['key'])) {
+				return ['vm' => $id, 'controller_created' => $target === null] + $disk;
+			}
+		}
+		return ['vm' => $id, 'controller_created' => $target === null,
+			'controller_key' => $target['key'] ?? null, 'unit_number' => $unit];
+	}
+
+	#[McpTool(
+		name: 'set_disk',
+		description: 'Change an existing disk\'s mode (persistent / independent_persistent / independent_nonpersistent) via ReconfigVM_Task (vim25). The VM must be powered off. Independent modes exclude the disk from snapshots. Provisioning cannot be changed this way — vCenter silently ignores thinProvisioned on backing edits; thin/thick is chosen when the VMDK is created.',
+		inputSchema: [
+			'type' => 'object',
+			'properties' => [
+				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
+				'disk' => ['type' => 'string', 'description' => 'Disk device key from list_disks (e.g. "2000")'],
+				'disk_mode' => ['type' => 'string', 'description' => 'persistent, independent_persistent or independent_nonpersistent'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+			],
+			'required' => ['vm', 'disk', 'disk_mode'],
+		]
+	)]
+	public function set_disk(
+		string $vm, string $disk, string $disk_mode, string $instance = ''
+	): array {
+		$inst = $this->inst($instance);
+		$id = $this->vmId($inst, $vm);
+
+		if (!in_array($disk_mode, \VCenter\Inventory::DISK_MODES, true)) {
+			throw new VCenterException(
+				"Invalid disk_mode '{$disk_mode}' — expected one of: " . implode(', ', \VCenter\Inventory::DISK_MODES),
+				0, 'InvalidArgument'
+			);
+		}
+
+		$device = null;
+		foreach ($inst->soap()->vmHardwareDevices($id) as $d) {
+			if (($d['device'] ?? '') === 'VirtualDisk' && (string) ($d['key'] ?? '') === $disk) {
+				$device = $d;
+				break;
+			}
+		}
+		if ($device === null) {
+			throw new VCenterException("VM {$id} has no disk with key {$disk}", 0, 'NotFound');
+		}
+		$backing = is_array($device['backing'] ?? null) ? $device['backing'] : [];
+		if (!isset($backing['fileName'])) {
+			throw new VCenterException(
+				"Disk {$disk} on VM {$id} is not a flat VMDK backing — set_disk only edits FlatVer2 backings",
+				0, 'Unsupported'
+			);
+		}
+
+		$this->requirePoweredOff($inst, $id, 'Changing a disk\'s mode');
+
+		$deviceChange = '<deviceChange><operation>edit</operation>'
+			. '<device xsi:type="VirtualDisk">'
+			. '<key>' . (int) $device['key'] . '</key>'
+			. '<backing xsi:type="VirtualDiskFlatVer2BackingInfo">'
+			. '<fileName>' . \VCenter\SoapClient::esc((string) $backing['fileName']) . '</fileName>'
+			. '<diskMode>' . $disk_mode . '</diskMode>'
+			. '</backing>'
+			. '<controllerKey>' . (int) ($device['controllerKey'] ?? 0) . '</controllerKey>'
+			. '<unitNumber>' . (int) ($device['unitNumber'] ?? 0) . '</unitNumber>'
+			. '<capacityInKB>' . (int) ($device['capacityInKB'] ?? 0) . '</capacityInKB>'
+			. '</device></deviceChange>';
+
+		$this->reconfigureStorage($inst, $id, $deviceChange);
+
+		foreach ($inst->inventory()->vmStorageDisks($id) as $d) {
+			if ($d['disk'] === $disk) {
+				return ['vm' => $id, 'updated' => true] + $d;
+			}
+		}
+		return ['vm' => $id, 'updated' => true, 'disk' => $disk];
+	}
+
+	/**
+	 * Run a ReconfigVM_Task and map power-state rejections to the
+	 * PowerStateError callers pattern-match on.
+	 *
+	 * @throws VCenterException
+	 */
+	private function reconfigureStorage(\VCenter\Instance $inst, string $vmId, string $deviceChange): void
+	{
+		try {
+			$task = $inst->soap()->reconfigVm(['type' => 'VirtualMachine', 'id' => $vmId], $deviceChange);
+			$inst->tasks()->wait($task);
+		} catch (VCenterException $e) {
+			if (in_array($e->getErrorType(), ['InvalidPowerState', 'InvalidState'], true)) {
+				throw new VCenterException(
+					"Storage reconfigure of VM {$vmId} rejected in its current power state: " . $e->getMessage(),
+					0, 'PowerStateError', $e
+				);
+			}
+			throw $e;
+		}
+	}
+
+	/**
+	 * Fail with a PowerStateError unless the VM is powered off.
+	 *
+	 * @throws VCenterException
+	 */
+	private function requirePoweredOff(\VCenter\Instance $inst, string $vmId, string $what): void
+	{
+		$power = $inst->rest()->get("vcenter/vm/{$vmId}/power");
+		$state = is_array($power) ? (string) ($power['state'] ?? '') : '';
+		if ($state !== 'POWERED_OFF') {
+			throw new VCenterException(
+				"{$what} requires the VM to be powered off (VM {$vmId} is {$state})",
+				0, 'PowerStateError'
+			);
+		}
 	}
 
 	#[McpTool(

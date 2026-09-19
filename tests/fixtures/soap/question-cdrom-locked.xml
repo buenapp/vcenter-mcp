@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet>
+            <name>runtime.question</name>
+            <val xsi:type="VirtualMachineQuestionInfo">
+              <id>question-9</id>
+              <text>The guest operating system has locked the CD-ROM door and is probably using the CD-ROM, which can prevent the guest from recognizing media changes. Disconnect anyway and override the lock?</text>
+              <choice>
+                <choiceInfo><key>button.yes</key><label>button.yes</label></choiceInfo>
+                <choiceInfo><key>button.no</key><label>button.no</label></choiceInfo>
+              </choice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

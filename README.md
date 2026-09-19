@@ -86,14 +86,14 @@ Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 {"mcpServers": {"vcenter": {"command": "php", "args": ["/home/<you>/.local/bin/vcenter-mcp.phar", "--config=/home/<you>/.config/vcenter-mcp/instances.json"]}}}
 ```
 
-### Tools (40)
+### Tools (42)
 
 | Area | Tools |
 |---|---|
 | Instance | `get_vcenter_info`, `list_vcenter_instances` |
 | Inventory | `list_datacenters`, `list_clusters`, `list_hosts`, `list_datastores`, `list_networks`, `list_folders`, `list_resource_pools`, `list_vms`, `browse_datastore`, `read_datastore_file` |
 | VM | `get_vm`, `create_vm`, `delete_vm`, `set_vm_hardware` |
-| Devices | `list_cdroms`, `attach_iso`, `detach_iso`, `list_disks`, `add_disk`, `list_nics`, `add_nic`, `set_boot` |
+| Devices | `list_cdroms`, `attach_iso`, `detach_iso`, `list_disks`, `add_disk`, `set_disk`, `list_controllers`, `list_nics`, `add_nic`, `set_boot` |
 | Video | `get_video`, `set_video` |
 | Power | `vm_power`, `get_vm_power` |
 | Guest | `get_guest_info`, `find_vm_ip`, `guest_run`, `guest_process_status`, `guest_upload`, `guest_download`, `guest_list_files` |
@@ -104,7 +104,20 @@ datacenter — pass `datacenter` or MoRef ids when ambiguous. After an OS
 install, pick **Reboot in the installer first**, then `detach_iso` —
 detaching while the live installer runs raises the "guest has locked
 the CD-ROM door" question (answer with `answer_vm_question
-choice=button.yes`) and then page-faults in init.
+choice=button.yes` — `detach_iso` already auto-answers and retries
+once) and then page-faults in init.
+
+Storage notes: `list_disks`/`list_controllers` report SCSI/SATA/NVMe
+controller types, unit numbers, disk mode and thin/thick via vim25
+(REST does not model these). `add_disk` with `controller_type` /
+`disk_mode` / `thin` goes through ReconfigVM_Task with
+`fileOperation=create` (hot-plug capable; a new controller can be
+created in the same call but requires the VM powered off). `set_disk`
+changes only the disk mode and also requires power-off — vCenter
+silently ignores `thinProvisioned` on backing edits, so thin/thick is
+chosen when the VMDK is created. `create_vm` accepts `controllers`
+(one adapter type per bus, overrides `scsi_type`) and `disk_mode`
+(post-create vim25 edit of the boot disk).
 
 Guest operations (`guest_run`, `guest_upload`, ...) bypass the
 **network**, not **authentication** — they still need valid credentials

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet>
+            <name>config.hardware.device</name>
+            <val xsi:type="ArrayOfVirtualDevice">
+              <VirtualDevice xsi:type="VirtualLsiLogicSASController">
+                <key>1000</key>
+                <deviceInfo>
+                  <label>SCSI controller 0</label>
+                  <summary>LSI Logic SAS</summary>
+                </deviceInfo>
+                <controllerKey>100</controllerKey>
+                <unitNumber>3</unitNumber>
+                <busNumber>0</busNumber>
+                <sharedBus>noSharing</sharedBus>
+              </VirtualDevice>
+              <VirtualDevice xsi:type="ParaVirtualSCSIController">
+                <key>1001</key>
+                <deviceInfo>
+                  <label>SCSI controller 1</label>
+                  <summary>VMware paravirtual SCSI</summary>
+                </deviceInfo>
+                <controllerKey>100</controllerKey>
+                <unitNumber>4</unitNumber>
+                <busNumber>1</busNumber>
+                <sharedBus>noSharing</sharedBus>
+              </VirtualDevice>
+              <VirtualDevice xsi:type="VirtualDisk">
+                <key>2000</key>
+                <deviceInfo>
+                  <label>Hard disk 1</label>
+                  <summary>20,971,520 KB</summary>
+                </deviceInfo>
+                <backing xsi:type="VirtualDiskFlatVer2BackingInfo">
+                  <fileName>[ds2] t1/t1.vmdk</fileName>
+                  <datastore type="Datastore">datastore-22</datastore>
+                  <diskMode>persistent</diskMode>
+                  <thinProvisioned>true</thinProvisioned>
+                </backing>
+                <controllerKey>1000</controllerKey>
+                <unitNumber>0</unitNumber>
+                <capacityInKB>20971520</capacityInKB>
+              </VirtualDevice>
+              <VirtualDevice xsi:type="VirtualDisk">
+                <key>2001</key>
+                <deviceInfo>
+                  <label>Hard disk 2</label>
+                  <summary>104,857,600 KB</summary>
+                </deviceInfo>
+                <backing xsi:type="VirtualDiskFlatVer2BackingInfo">
+                  <fileName>[ds2] t1/t1_1.vmdk</fileName>
+                  <datastore type="Datastore">datastore-22</datastore>
+                  <diskMode>independent_persistent</diskMode>
+                  <thinProvisioned>false</thinProvisioned>
+                </backing>
+                <controllerKey>1001</controllerKey>
+                <unitNumber>0</unitNumber>
+                <capacityInKB>104857600</capacityInKB>
+              </VirtualDevice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

@@ -161,6 +161,7 @@ class SoapClient
 				'propertyCollector' => self::moRef($ret, 'propertyCollector'),
 				'rootFolder' => self::moRef($ret, 'rootFolder'),
 				'fileManager' => self::moRef($ret, 'fileManager'),
+				'virtualDiskManager' => self::moRef($ret, 'virtualDiskManager'),
 				'guestOperationsManager' => self::moRef($ret, 'guestOperationsManager'),
 			];
 		}
@@ -681,6 +682,24 @@ class SoapClient
 			'<spec xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
 			. $deviceChangeXml
 			. '</spec>');
+		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
+	/**
+	 * DeleteVirtualDisk_Task: remove a standalone VMDK. Returns the
+	 * Task MoRef.
+	 *
+	 * @param array{type:string,id:string} $datacenter    Datacenter MoRef
+	 * @param string                       $datastorePath "[Datastore] dir/name.vmdk"
+	 * @return array{type:string,id:string} Task MoRef
+	 * @throws VCenterException
+	 */
+	public function deleteVirtualDisk(array $datacenter, string $datastorePath): array
+	{
+		$vdm = $this->serviceContent()['virtualDiskManager'];
+		$ret = $this->invokeAuthed('DeleteVirtualDisk_Task', $vdm['type'], $vdm['id'],
+			'<name>' . self::esc($datastorePath) . '</name>'
+			. '<datacenter type="' . self::esc($datacenter['type']) . '">' . self::esc($datacenter['id']) . '</datacenter>');
 		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
 	}
 

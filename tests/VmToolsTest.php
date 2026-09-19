@@ -23,7 +23,7 @@ class VmToolsTest extends TestCase
 	}
 
 	/** Full placement fake: host list, SOAP datastore prop, datastore GETs, folder, pool, network. */
-	private function createFake(): FakeHttp
+	private function createFake(?string $deviceFixture = null): FakeHttp
 	{
 		$fake = new FakeHttp();
 		$fake->on('POST', '/api/session', fn() => ['code' => 200, 'body' => '"tok"']);
@@ -32,8 +32,25 @@ class VmToolsTest extends TestCase
 			fn() => ['code' => 200, 'body' => $fixture('service-content.xml')]);
 		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', '<Login '),
 			fn() => ['code' => 200, 'body' => $fixture('login-response.xml'), 'headers' => FakeHttp::soapSessionHeaders()]);
+		// More specific config.hardware.device reads must precede the
+		// generic RetrievePropertiesEx route (first match wins).
+		if ($deviceFixture !== null) {
+			$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'config.hardware.device'),
+				fn() => ['code' => 200, 'body' => $fixture($deviceFixture)]);
+		}
 		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'RetrievePropertiesEx'),
-			fn() => ['code' => 200, 'body' => $fixture('retrieve-properties-ex.xml')]);
+			function (array $c) use ($fixture) {
+				// Task::wait polls Task.info through the same call.
+				if (str_contains($c['body'] ?? '', '<pathSet>info</pathSet>')) {
+					return ['code' => 200, 'body' => '<?xml version="1.0"?>'
+						. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>'
+						. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>'
+						. '<obj type="Task">task-7</obj>'
+						. '<propSet><name>info</name><val><state>success</state></val></propSet>'
+						. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>'];
+				}
+				return ['code' => 200, 'body' => $fixture('retrieve-properties-ex.xml')];
+			});
 
 		$fake->on('GET', '/api/vcenter/host', function (array $c) {
 			$hosts = [
@@ -78,7 +95,7 @@ class VmToolsTest extends TestCase
 		$body = json_decode($create['body'], true);
 
 		$this->assertSame('t1', $body['name']);
-		$this->assertSame('FREEBSD_64', $body['guest_OS']);
+		$this->assertSame('FREEBSD_14_64', $body['guest_OS']);
 		// Placement: excluded host skipped, most-free datastore picked
 		$this->assertSame('host-12', $body['placement']['host']);
 		$this->assertSame('datastore-22', $body['placement']['datastore']);
@@ -192,6 +209,109 @@ class VmToolsTest extends TestCase
 
 		$body = json_decode($fake->calls('POST', '/api/vcenter/vm')[0]['body'], true);
 		$this->assertArrayNotHasKey('hardware_version', $body);
+	}
+
+	public function testCreateVmControllersMapToBuses(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		$tools->create_vm('t7', controllers: ['lsilogicsas', 'PVSCSI']);
+
+		$body = json_decode($fake->calls('POST', '/api/vcenter/vm')[0]['body'], true);
+		$this->assertSame(
+			[['type' => 'LSILOGICSAS', 'bus' => 0], ['type' => 'PVSCSI', 'bus' => 1]],
+			$body['scsi_adapters']
+		);
+	}
+
+	public function testCreateVmRejectsBadControllers(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		try {
+			$tools->create_vm('t8', controllers: ['NVME']);
+			$this->fail('expected VCenterException');
+		} catch (VCenterException $e) {
+			$this->assertSame('InvalidArgument', $e->getErrorType());
+		}
+		$this->assertSame([], $fake->calls('POST', '/api/vcenter/vm'));
+	}
+
+	public function testCreateVmRejectsBadDiskMode(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		try {
+			$tools->create_vm('t9', disk_mode: 'ephemeral');
+			$this->fail('expected VCenterException');
+		} catch (VCenterException $e) {
+			$this->assertSame('InvalidArgument', $e->getErrorType());
+		}
+		$this->assertSame([], $fake->calls('POST', '/api/vcenter/vm'));
+	}
+
+	public function testCreateVmDiskModeEditsBootDiskBacking(): void
+	{
+		$fake = $this->createFake('config-hardware-storage.xml');
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'ReconfigVM_Task'),
+			fn() => ['code' => 200, 'body' => '<?xml version="1.0"?>'
+				. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>'
+				. '<ReconfigVM_TaskResponse xmlns="urn:vim25"><returnval type="Task">task-7</returnval></ReconfigVM_TaskResponse>'
+				. '</soapenv:Body></soapenv:Envelope>']);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', '<pathSet>info</pathSet>'),
+			fn() => ['code' => 200, 'body' => '<?xml version="1.0"?>'
+				. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>'
+				. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>'
+				. '<obj type="Task">task-7</obj>'
+				. '<propSet><name>info</name><val><state>success</state></val></propSet>'
+				. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>']);
+
+		$tools = new VmTools($this->manager($fake->callable()));
+		$tools->create_vm('t10', disk_mode: 'independent_persistent');
+
+		$reconfig = array_values(array_filter($fake->calls('POST', '/sdk'),
+			fn($c) => str_contains($c['body'] ?? '', 'ReconfigVM_Task')))[0]['body'];
+		$this->assertStringContainsString('<operation>edit</operation>', $reconfig);
+		$this->assertStringContainsString('<device xsi:type="VirtualDisk">', $reconfig);
+		$this->assertStringContainsString('<key>2000</key>', $reconfig);
+		$this->assertStringContainsString('<fileName>[ds2] t1/t1.vmdk</fileName>', $reconfig);
+		$this->assertStringContainsString('<diskMode>independent_persistent</diskMode>', $reconfig);
+		$this->assertStringNotContainsString('thinProvisioned', $reconfig);
+	}
+
+	public function testCreateVmWithoutDiskModeSkipsReconfig(): void
+	{
+		$fake = $this->createFake();
+		$tools = new VmTools($this->manager($fake->callable()));
+		$tools->create_vm('t11');
+
+		$this->assertSame([], array_filter($fake->calls('POST', '/sdk'),
+			fn($c) => str_contains($c['body'] ?? '', 'ReconfigVM_Task')));
+	}
+
+	public function testGetVmIncludesStorageDetail(): void
+	{
+		$fake = new FakeHttp();
+		$fake->on('POST', '/api/session', fn() => ['code' => 200, 'body' => '"tok"']);
+		$fake->on('GET', '/api/vcenter/vm/vm-42', fn() => ['code' => 200, 'body' =>
+			'{"name":"t1","power_state":"POWERED_ON","cpu":{"count":2}}']);
+		$fixture = fn(string $n) => file_get_contents(__DIR__ . '/fixtures/soap/' . $n);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'RetrieveServiceContent'),
+			fn() => ['code' => 200, 'body' => $fixture('service-content.xml')]);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', '<Login '),
+			fn() => ['code' => 200, 'body' => $fixture('login-response.xml'), 'headers' => FakeHttp::soapSessionHeaders()]);
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'config.hardware.device'),
+			fn() => ['code' => 200, 'body' => $fixture('config-hardware-storage.xml')]);
+
+		$tools = new VmTools($this->manager($fake->callable()));
+		$vm = $tools->get_vm('vm-42');
+
+		$this->assertSame('t1', $vm['name']);
+		$this->assertCount(2, $vm['controllers']);
+		$this->assertSame('paravirtual', $vm['controllers'][1]['controller_type']);
+		$this->assertCount(2, $vm['disks']);
+		$this->assertSame('independent_persistent', $vm['disks'][1]['disk_mode']);
+		$this->assertFalse($vm['disks'][1]['thin_provisioned']);
 	}
 
 	public function testDeleteVmRefusesPoweredOnWithoutForce(): void
