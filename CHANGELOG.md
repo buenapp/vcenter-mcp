@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Guest operations via VMware Tools (GuestOperationsManager over vim25
+  SOAP), closing issue #4:
+  - `guest_run` — StartProgramInGuest with a blocking wait on
+    ListProcessesInGuest for the exit code. `command` runs a /bin/sh
+    command line; `program`+`arguments` runs a binary directly (no
+    shell interpretation). With `capture_output` (default) the command
+    is wrapped `/bin/sh -c '{ cmd; } > /tmp/<n>.out 2>&1'` and the
+    output is fetched back via InitiateFileTransferFromGuest — capture
+    is POSIX guests only.
+  - `guest_process_status` — ListProcessesInGuest (all or by pid).
+  - `guest_upload` / `guest_download` — InitiateFileTransfer{To,From}Guest
+    plus PUT/GET on the one-time /guestFile URL, contacted directly at
+    the ESXi host through a per-host client under the instance TLS
+    policy (VMCA signs host certs); an asterisk hostname falls back to
+    the instance's vCenter, which proxies the transfer.
+  - `guest_list_files` — ListFilesInGuest with pagination.
+- Fault mapping for the common GuestOperations failures:
+  GuestOperationsUnavailable ("Tools not running"), InvalidGuestLogin,
+  GuestPermissionDenied, TooManyGuestLogons.
+
 ## [0.1.4] - 2026-09-13
 
 ### Fixed

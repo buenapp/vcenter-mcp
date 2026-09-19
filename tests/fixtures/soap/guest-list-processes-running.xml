@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <ListProcessesInGuestResponse xmlns="urn:vim25">
+      <returnval>
+        <pid>4242</pid>
+        <name>sleep</name>
+        <cmdLine>sleep 60</cmdLine>
+        <startTime>2026-09-19T12:00:00Z</startTime>
+        <owner>root</owner>
+      </returnval>
+    </ListProcessesInGuestResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

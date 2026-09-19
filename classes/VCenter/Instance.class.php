@@ -52,6 +52,7 @@ class Instance
 	private ?PropertyCollector $properties = null;
 	private ?Task $tasks = null;
 	private ?Inventory $inventory = null;
+	private ?GuestOperations $guestOps = null;
 
 	/** @var callable|null fn(Instance, string $vmId): Console\WebMksClient — test seam */
 	private $webMksFactory;
@@ -241,6 +242,14 @@ class Instance
 			$this->inventory = new Inventory($this);
 		}
 		return $this->inventory;
+	}
+
+	public function guestOps(): GuestOperations
+	{
+		if ($this->guestOps === null) {
+			$this->guestOps = new GuestOperations($this);
+		}
+		return $this->guestOps;
 	}
 
 	/**

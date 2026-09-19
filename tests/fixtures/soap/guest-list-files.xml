@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <ListFilesInGuestResponse xmlns="urn:vim25">
+      <returnval>
+        <files>
+          <path>/tmp/notes.txt</path>
+          <size>42</size>
+          <modificationTime>2026-09-19T11:00:00Z</modificationTime>
+          <attributes xsi:type="GuestPosixFileAttributes">
+            <type>file</type>
+            <permissions>420</permissions>
+          </attributes>
+        </files>
+        <files>
+          <path>/tmp/work</path>
+          <size>4096</size>
+          <modificationTime>2026-09-19T10:30:00Z</modificationTime>
+          <attributes xsi:type="GuestPosixFileAttributes">
+            <type>directory</type>
+            <permissions>493</permissions>
+          </attributes>
+        </files>
+        <newIndex>2</newIndex>
+        <endOfStream>true</endOfStream>
+      </returnval>
+    </ListFilesInGuestResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <ListProcessesInGuestResponse xmlns="urn:vim25">
+      <returnval>
+        <pid>4242</pid>
+        <name>sh</name>
+        <cmdLine>/bin/sh -c 'echo hello &gt; /tmp/vcenter-mcp-a1b2c3d4e5f6.out 2&gt;&amp;1'</cmdLine>
+        <startTime>2026-09-19T12:00:00Z</startTime>
+        <endTime>2026-09-19T12:00:01Z</endTime>
+        <exitCode>0</exitCode>
+        <owner>root</owner>
+      </returnval>
+    </ListProcessesInGuestResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

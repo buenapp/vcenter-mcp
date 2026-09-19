@@ -47,6 +47,7 @@ classes/VCenter/
   Inventory.class.php           name->id resolution (host, cluster, datastore, network, folder, vm), host exclusion
   UsbScanCodes.class.php        text / key names -> UsbScanCodeSpec key events (US layout)
   Screenshot.class.php          CreateScreenshot_Task -> /folder download -> DeleteDatastoreFile_Task
+  GuestOperations.class.php     guest auth (NamePasswordAuthentication), run->poll->capture, file transfers
   Console/WebMksClient.class.php   AcquireTicket(webmks) -> wss RFB session (Phase 3)
   Console/Rfb.class.php            RFB 3.8 message codec (raw encoding only)
   Console/Png.class.php            raw RGB framebuffer -> PNG (zlib, no GD)
@@ -221,6 +222,13 @@ ConsoleTools
 GuestTools
 - `get_guest_info(vm)` (readOnly) — identity + interfaces; clean message when VMware Tools is absent
 - `find_vm_ip(vm)` (readOnly) — guest interfaces when available, otherwise the NIC MACs with guidance (DHCP leases / console `ifconfig`)
+- `guest_run(vm, guest_username, guest_password, command | program + arguments, working_directory?, env?, capture_output=true, timeout=120, interactive_session=false)` — StartProgramInGuest via GuestOperationsManager (vim25), poll ListProcessesInGuest for the exit code; with capture_output the command is wrapped `/bin/sh -c '{ cmd; } > /tmp/<n>.out 2>&1'` and the file fetched via InitiateFileTransferFromGuest (POSIX guests only)
+- `guest_process_status(vm, guest creds, pids?)` (readOnly) — ListProcessesInGuest, shaped
+- `guest_upload(vm, guest creds, guest_path, content | content_base64 | local_path, overwrite=true, permissions?)` — InitiateFileTransferToGuest + PUT to the one-time /guestFile URL (contacted directly at the ESXi host under the instance TLS policy; asterisk hostname falls back to the vCenter host, which proxies)
+- `guest_download(vm, guest creds, guest_path, local_path?, max_bytes=262144)` — InitiateFileTransferFromGuest + GET; text verbatim, binary base64
+- `guest_list_files(vm, guest creds, path, match_pattern?, index?, max_results?)` (readOnly) — ListFilesInGuest, shaped
+
+Guest-ops fault mapping: GuestOperationsUnavailable -> "Tools not running", InvalidGuestLogin -> "guest authentication failed", GuestPermissionDenied, TooManyGuestLogons. Guest ops bypass the network, not authentication — Tools must be running and guest credentials valid; the console tools remain the earliest-bootstrap path.
 
 ## Configuration
 

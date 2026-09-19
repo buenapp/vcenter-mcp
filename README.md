@@ -86,7 +86,7 @@ Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 {"mcpServers": {"vcenter": {"command": "php", "args": ["/home/<you>/.local/bin/vcenter-mcp.phar", "--config=/home/<you>/.config/vcenter-mcp/instances.json"]}}}
 ```
 
-### Tools (35)
+### Tools (40)
 
 | Area | Tools |
 |---|---|
@@ -96,7 +96,7 @@ Register with an MCP host (Devin Desktop `~/.config/devin/mcp_config.json`):
 | Devices | `list_cdroms`, `attach_iso`, `detach_iso`, `list_disks`, `add_disk`, `list_nics`, `add_nic`, `set_boot` |
 | Video | `get_video`, `set_video` |
 | Power | `vm_power`, `get_vm_power` |
-| Guest | `get_guest_info`, `find_vm_ip` |
+| Guest | `get_guest_info`, `find_vm_ip`, `guest_run`, `guest_process_status`, `guest_upload`, `guest_download`, `guest_list_files` |
 | Console | `vm_screenshot`, `vm_send_keys`, `get_vm_question`, `answer_vm_question`, `vm_console_info` |
 
 Install workflow notes: names like `Default`/`CDImages` can exist per
@@ -105,6 +105,20 @@ install, pick **Reboot in the installer first**, then `detach_iso` —
 detaching while the live installer runs raises the "guest has locked
 the CD-ROM door" question (answer with `answer_vm_question
 choice=button.yes`) and then page-faults in init.
+
+Guest operations (`guest_run`, `guest_upload`, ...) bypass the
+**network**, not **authentication** — they still need valid credentials
+inside the guest, and VMware Tools must already be running
+(`open-vm-tools` on FreeBSD). Guest credential checks go through PAM
+under the `vmtoolsd` service name, so FreeBSD guests need a matching
+service file (e.g. `/etc/pam.d/vmtoolsd` with `auth include system` /
+`account include system`) or logins fail with `InvalidGuestLogin`.
+They do not replace the console for the earliest bootstrap cases (no
+known local password, boot loader, single-user mode): Tools is not
+running that early, so `vm_send_keys` remains the only tool there.
+`guest_run` output capture wraps the command in `/bin/sh`, so capture
+is POSIX guests only; use `capture_output=false` with an explicit
+`program` elsewhere.
 
 See `docs/SETUP.md` for configuration, `docs/ARCHITECTURE.md` for
 internals and `docs/UPGRADING.md` for vendored-library provenance. The

@@ -7,6 +7,7 @@
         <propertyCollector type="PropertyCollector">propertyCollector</propertyCollector>
         <sessionManager type="SessionManager">SessionManager</sessionManager>
         <fileManager type="FileManager">FileManager</fileManager>
+        <guestOperationsManager type="GuestOperationsManager">guestOperationsManager</guestOperationsManager>
         <about>
           <name>VMware vCenter Server</name>
           <fullName>VMware vCenter Server 8.0.3 build-24345018</fullName>

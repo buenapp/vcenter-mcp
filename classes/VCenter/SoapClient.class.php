@@ -38,6 +38,12 @@ class SoapClient
 	/** @var array|null Cached RetrieveServiceContent result */
 	private ?array $serviceContent = null;
 
+	/** @var array|null Cached GuestOperationsManager sub-manager MoRefs */
+	private ?array $guestManagers = null;
+
+	/** @var array<string,\Enchilada\Tortilla\HttpClient> Per-host clients for guest file transfers */
+	private array $transferClients = [];
+
 	/** @var int HTTP status of the most recent call */
 	private int $lastHttpCode = 0;
 
@@ -155,6 +161,7 @@ class SoapClient
 				'propertyCollector' => self::moRef($ret, 'propertyCollector'),
 				'rootFolder' => self::moRef($ret, 'rootFolder'),
 				'fileManager' => self::moRef($ret, 'fileManager'),
+				'guestOperationsManager' => self::moRef($ret, 'guestOperationsManager'),
 			];
 		}
 		return $this->serviceContent;
@@ -258,7 +265,11 @@ class SoapClient
 	 */
 	public function retrieveProperties(array $objects, array $props): array
 	{
-		return $this->properties($objects, $props);
+		$byType = [];
+		foreach ($objects as $obj) {
+			$byType[$obj['type']] = $props;
+		}
+		return $this->properties($objects, $byType);
 	}
 
 	/**
@@ -322,6 +333,223 @@ class SoapClient
 			'<name>' . self::esc($datastorePath) . '</name>'
 			. '<datacenter type="' . $datacenterMoRef['type'] . '">' . self::esc($datacenterMoRef['id']) . '</datacenter>');
 		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
+	}
+
+	// ── Guest Operations (VMware Tools) ─────────────────────────────
+	//
+	// All guest-ops methods ride on the GuestOperationsManager and take a
+	// pre-built <auth> element (see GuestOperations::authXml). File
+	// transfers are two-step: Initiate* hands back a one-time URL on the
+	// /guestFile endpoint, then a plain PUT/GET moves the bytes. The URL
+	// normally points at the ESXi host and is contacted directly (the
+	// instance TLS policy covers it — VMCA signs host certs); an asterisk
+	// hostname is substituted with the instance's vCenter, which proxies.
+
+	/**
+	 * GuestOperationsManager sub-managers (processManager, fileManager).
+	 * The guest-ops methods are defined on those, not on the GOM itself,
+	 * so their MoRefs are fetched once via the property collector.
+	 */
+	public function guestManagers(): array
+	{
+		if ($this->guestManagers === null) {
+			$gom = $this->serviceContent()['guestOperationsManager'] ?? null;
+			if ($gom === null) {
+				throw new VCenterException('vCenter does not report a GuestOperationsManager', 0, 'NotSupported');
+			}
+			$props = $this->retrieveProperties([$gom], ['processManager', 'fileManager']);
+			$props = $props[$gom['type'] . ':' . $gom['id']] ?? [];
+			foreach (['processManager', 'fileManager'] as $manager) {
+				if (empty($props[$manager])) {
+					throw new VCenterException("GuestOperationsManager reports no {$manager}", 0, 'NotSupported');
+				}
+			}
+			$this->guestManagers = $props;
+		}
+		return $this->guestManagers;
+	}
+
+	/**
+	 * Shared envelope for guest-ops calls on a sub-manager:
+	 * <vm>, <auth>, then the method-specific parameters.
+	 */
+	private function guestCall(string $manager, string $method, array $vm, string $authXml, string $innerXml): \SimpleXMLElement
+	{
+		$target = $this->guestManagers()[$manager];
+		return $this->invokeAuthed($method, $target['type'], $target['id'],
+			'<vm type="' . self::esc($vm['type']) . '">' . self::esc($vm['id']) . '</vm>'
+			. $authXml
+			. $innerXml);
+	}
+
+	/** StartProgramInGuest; returns the guest PID of the started process. */
+	public function startProgramInGuest(array $vm, string $authXml, string $specXml): int
+	{
+		$ret = $this->guestCall('processManager', 'StartProgramInGuest', $vm, $authXml, '<spec>' . $specXml . '</spec>');
+		return (int) ((string) $ret);
+	}
+
+	/**
+	 * ListProcessesInGuest; raw GuestProcessInfo entries as arrays.
+	 * PIDs that are not found are simply absent from the result.
+	 */
+	public function listProcessesInGuest(array $vm, string $authXml, array $pids = []): array
+	{
+		$inner = '';
+		foreach ($pids as $pid) {
+			$inner .= '<pids>' . (int) $pid . '</pids>';
+		}
+		$ret = $this->guestCall('processManager', 'ListProcessesInGuest', $vm, $authXml, $inner);
+		return self::repeatedReturnval($ret);
+	}
+
+	/**
+	 * InitiateFileTransferToGuest; returns the one-time upload URL.
+	 * $attributesXml is the <fileAttributes> element (pre-built).
+	 */
+	public function initiateFileTransferToGuest(array $vm, string $authXml, string $guestPath, string $attributesXml, int $fileSize, bool $overwrite): string
+	{
+		$ret = $this->guestCall('fileManager', 'InitiateFileTransferToGuest', $vm, $authXml,
+			'<guestFilePath>' . self::esc($guestPath) . '</guestFilePath>'
+			. $attributesXml
+			. '<fileSize>' . $fileSize . '</fileSize>'
+			. '<overwrite>' . ($overwrite ? 'true' : 'false') . '</overwrite>');
+		return (string) $ret;
+	}
+
+	/**
+	 * InitiateFileTransferFromGuest.
+	 *
+	 * @return array{url:string,size:int,attributes:array} FileTransferInformation
+	 */
+	public function initiateFileTransferFromGuest(array $vm, string $authXml, string $guestPath): array
+	{
+		$ret = $this->guestCall('fileManager', 'InitiateFileTransferFromGuest', $vm, $authXml,
+			'<guestFilePath>' . self::esc($guestPath) . '</guestFilePath>');
+		$info = self::xmlToArray($ret);
+		return [
+			'url' => (string) ($info['url'] ?? ''),
+			'size' => (int) ($info['size'] ?? 0),
+			'attributes' => is_array($info['attributes'] ?? null) ? $info['attributes'] : [],
+		];
+	}
+
+	/**
+	 * ListFilesInGuest; decoded GuestListFileInfo
+	 * ({files:array, newIndex:?int, endOfStream:bool}).
+	 */
+	public function listFilesInGuest(array $vm, string $authXml, string $path, ?string $matchPattern = null, ?int $index = null, ?int $maxResults = null): array
+	{
+		$inner = '<filePath>' . self::esc($path) . '</filePath>';
+		if ($index !== null) {
+			$inner .= '<index>' . $index . '</index>';
+		}
+		if ($maxResults !== null) {
+			$inner .= '<maxResults>' . $maxResults . '</maxResults>';
+		}
+		if ($matchPattern !== null) {
+			$inner .= '<matchPattern>' . self::esc($matchPattern) . '</matchPattern>';
+		}
+		$info = self::xmlToArray($this->guestCall('fileManager', 'ListFilesInGuest', $vm, $authXml, $inner));
+		$files = $info['files'] ?? [];
+		if (is_array($files) && !array_is_list($files)) {
+			$files = [$files];
+		}
+		return [
+			'files' => $files,
+			'newIndex' => isset($info['newIndex']) ? (int) $info['newIndex'] : null,
+			'endOfStream' => in_array($info['endOfStream'] ?? false, [true, 'true', 1, '1'], true),
+		];
+	}
+
+	/** PUT $content to a guest file-transfer URL. */
+	public function putGuestFile(string $transferUrl, string $content): void
+	{
+		[$code] = $this->transferCall($transferUrl, $content, 'PUT',
+			['Content-Type: application/octet-stream']);
+		if ($code !== 200) {
+			throw new VCenterException("Guest file upload failed (HTTP {$code})", $code, 'Upload');
+		}
+	}
+
+	/** GET the content of a guest file-transfer URL. */
+	public function getGuestFile(string $transferUrl): string
+	{
+		[$code, $body] = $this->transferCall($transferUrl, null, 'GET');
+		if ($code !== 200) {
+			throw new VCenterException("Guest file download failed (HTTP {$code})", $code, 'Download');
+		}
+		return $body;
+	}
+
+	/**
+	 * HTTP round-trip to a guest file-transfer URL
+	 * ("https://<host>/guestFile?id=...&token=..."). A concrete host (the
+	 * ESXi host serving the file) is contacted directly through its own
+	 * Tortilla client with the instance TLS policy applied for that host
+	 * (the VMCA signs host certs); an asterisk placeholder is substituted
+	 * with the instance's vCenter host, which proxies the transfer.
+	 *
+	 * @return array{0:int,1:string} HTTP code and body
+	 */
+	private function transferCall(string $transferUrl, ?string $body, string $verb, array $headers = []): array
+	{
+		$parts = parse_url($transferUrl);
+		if ($parts === false || empty($parts['scheme']) || !isset($parts['host'], $parts['path'])) {
+			throw new VCenterException("Malformed guest file-transfer URL: {$transferUrl}", 0, 'ParseError');
+		}
+		$scheme = $parts['scheme'];
+		$host = $parts['host'];
+		if ($host === '*') {
+			$host = parse_url($this->instance->url(), PHP_URL_HOST);
+			if (!is_string($host) || $host === '') {
+				throw new VCenterException("Cannot resolve asterisk host in guest file-transfer URL: {$transferUrl}", 0, 'ParseError');
+			}
+		}
+		$port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+		$path = ltrim($parts['path'], '/') . (isset($parts['query']) ? '?' . $parts['query'] : '');
+		$url = $scheme . '://' . $host . ':' . $port . '/' . $path;
+
+		$fake = $this->instance->httpClient();
+		if ($fake !== null) {
+			$response = $fake($verb, $url, $headers, $body);
+			return [$response['code'], (string) ($response['body'] ?? '')];
+		}
+
+		$client = $this->transferClients[$host . ':' . $port] ?? null;
+		if ($client === null) {
+			$multi = new \EnchiladaMultiHTTP($scheme . '://' . $host . ':' . $port);
+			$multi->setTimeout(120);
+			$this->instance->tlsPolicy()->apply($multi, $host, $port);
+			$client = $this->transferClients[$host . ':' . $port] = new \Enchilada\Tortilla\HttpClient($multi);
+		}
+
+		try {
+			$result = $client->call($path, $body, $verb, $headers, null, 'raw');
+		} catch (\Exception $e) {
+			throw new VCenterException("HTTP error for {$url}: " . $e->getMessage(), 0, 'Transport', $e);
+		}
+		$code = $client->getHttpCode();
+		if ($code === 0 || $client->getLastCurlErrno() !== 0) {
+			throw new VCenterException("Transport error for {$url}: " . $client->getLastCurlError(), 0, 'Transport');
+		}
+		return [$code, is_string($result) ? $result : ''];
+	}
+
+	/**
+	 * Decode a response whose <returnval> may repeat (List*InGuest calls):
+	 * invoke() unwraps a single returnval, so it must be re-wrapped.
+	 */
+	private static function repeatedReturnval(\SimpleXMLElement $ret): array
+	{
+		if ($ret->getName() === 'returnval') {
+			return [self::xmlToArray($ret)];
+		}
+		$out = [];
+		foreach ($ret->xpath('./*[local-name()="returnval"]') as $el) {
+			$out[] = self::xmlToArray($el);
+		}
+		return $out;
 	}
 
 	/**

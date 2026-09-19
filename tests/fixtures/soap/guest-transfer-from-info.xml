@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <InitiateFileTransferFromGuestResponse xmlns="urn:vim25">
+      <returnval>
+        <size>6</size>
+        <attributes xsi:type="GuestPosixFileAttributes">
+          <modificationTime>2026-09-19T12:00:01Z</modificationTime>
+          <permissions>420</permissions>
+        </attributes>
+        <url>https://*/guestFile?id=9285&amp;token=db636f91-fake-token</url>
+      </returnval>
+    </InitiateFileTransferFromGuestResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
