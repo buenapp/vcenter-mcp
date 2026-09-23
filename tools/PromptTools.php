@@ -70,14 +70,24 @@ VIRTUAL HARDWARE (vcenter-mcp tools):
 3. ZFS data volumes, one call per volume:{$diskCalls}
    - ZFS data rides ONLY the PVSCSI adapter, disk_mode='independent_persistent' (keeps the pool out of vCenter snapshots — quiesced snapshots of a live ZFS pool are inconsistent), always thin.
 4. attach_iso(vm='{$name}', iso={$iso}) then vm_power(vm='{$name}', action='on').
+   - If attach_iso fails with a 500, the VM has no SATA adapter (create_vm with the controllers list skips the default AHCI/CD-ROM; issue #9). Fix once via REST: POST /api/vcenter/vm/<id>/hardware/adapter/sata {} then retry attach_iso.
+   - Power on immediately after attach_iso: the tool sets start_connected, and the install boots from the ISO.
 
 OS INSTALL (vm_screenshot/vm_send_keys through the bsdinstall console):
-- Hostname: {$name}. Choose distribution sets and, when asked for components: base, kernel, doc — NEVER lib32 (32-bit compat) or debug sets. Fetch sets from the estate mirror download.morante.org, not upstream.
-- Disk: use the 10 GiB LSI disk with UFS (root must NOT be ZFS — the two PVSCSI disks are the ZFS pool, created post-install or by hand with zpool mirror across both).
-- Networking: IPv4 via DHCP, IPv6 disabled, DNS resolver 192.168.1.10.
-- Services: sshd and moused ON, local_unbound OFF.
-- Accounts: set the root password from /home/admin/.multipass; create user 'admin' with the same password and secondary groups wheel and operator.
-- On 'Installation complete' choose Reboot FIRST, then detach_iso (a pending 'CD-ROM door locked' question is answered with answer_vm_question choice 'yes' — detach_iso retries once automatically). Then vm_power on and find_vm_ip.
+- PREFERRED: scripted bsdinstall. From the installer's Shell dialog, write /tmp/installerconfig (must NOT start with #! — the first #! line starts the post-install script; see FreeBSD 15.1 scripted-install gotchas in memory):
+      DISTRIBUTIONS="base.txz kernel.txz"
+      BSDINSTALL_DISTSITE="http://download.morante.org/releases/amd64/amd64/15.1-RELEASE"
+      PARTITIONS="da0"
+      #!/bin/sh
+      sysrc hostname="{$name}"; sysrc ifconfig_vmx0="DHCP"; sysrc sshd_enable="YES"
+      sysrc moused_enable="YES"; sysrc local_unbound_enable="NO"
+      echo <rootpw-from-multipass> | pw usermod root -h 0
+      pw useradd -n admin -s /bin/sh -m -c 'Admin'; echo <same pw> | pw usermod admin -h 0; pw usermod admin -G 'wheel operator'
+  then `bsdinstall script /tmp/installerconfig`. Never redirect bsdinstall output; dialogs render to stdout.
+- INTERACTIVE alternative: kmap Enter, distribution type = Distribution Sets — note this path has NO component chooser in 15.1 and fetches base+kernel+kernel-dbg+lib32; strip debug/lib32 afterwards and do not present them as installed. Partitioning: Auto (UFS), GPT, Entire Disk on the LSI disk (da0). If the fetch stalls on resolver errors, the bsdinstall startup wiped /tmp/bsdinstall_etc/resolv.conf (symlinked from /etc) — restart via Shell: dhclient vmx0; then resume.
+- Networking resolves to DHCP IPv4 (192.168.1.0/24, resolver 192.168.1.10); never IPv6.
+- Pwr: on 'Installation Complete' reboot FIRST, then detach_iso. vm_power on, then find_vm_ip.
+- Post: ssh admin@<ip> is password-only; root password login is disabled by sshd — use su -, then run the provisioning fetch line below.
 
 POST-PROVISION:
 - ssh in and become root; run: fetch -o - http://download.morante.net/unibia/freebsd/vmware/autoprovision_server.sh | sh
