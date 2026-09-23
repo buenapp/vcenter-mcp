@@ -51,7 +51,7 @@ class PromptToolsTest extends TestCase
 		]);
 		$text = $r['result']['messages'][0]['content']['text'] ?? '';
 		foreach ([
-			'box1', 'FREEBSD_14_64', 'VMX_21', "'lsilogic-sas', 'paravirtual'",
+			'box1', 'FREEBSD_14_64', 'VMX_21', "'LSILOGICSAS', 'PVSCSI'",
 			"use_auto_detect=true", "'independent_persistent'", 'download.morante.org',
 			'autoprovision_server.sh', 'wheel and operator', 'size_gib=40',
 		] as $must) {

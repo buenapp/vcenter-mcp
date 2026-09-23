@@ -63,8 +63,9 @@ class PromptTools
 Deploy a new estate FreeBSD service VM named '{$name}'.
 
 VIRTUAL HARDWARE (vcenter-mcp tools):
-1. create_vm(name='{$name}', cpu={$cpu}, memory_mib={$memoryMib}, disk_gib=10, guest_os='FREEBSD_14_64', firmware='EFI' (the default), nic_type='VMXNET3' (the default), version='VMX_21', controllers=['lsilogic-sas', 'paravirtual']{$netClause}{$dcClause})
-   - The 10 GiB boot disk lands on the LSI adapter (bus 0) — the spec puts the root OS volume on LSI Logic SAS, never on PVSCSI.
+1. create_vm(name='{$name}', cpu={$cpu}, memory_mib={$memoryMib}, disk_gib=10, guest_os='FREEBSD_14_64', firmware='EFI' (the default), nic_type='VMXNET3' (the default), version='VMX_21', controllers=['LSILOGICSAS', 'PVSCSI']{$netClause}{$dcClause})
+   - controllers uses vSphere type names (LSILOGICSAS, PVSCSI) — unlike add_disk's controller_type vocabulary ('lsilogic-sas', 'paravirtual').
+   - Afterwards verify with list_disks that the 10 GiB boot disk hangs off the LSILOGICSAS adapter (bus 0). If vCenter bound it to PVSCSI instead, that is a create_vm gap — file/extend issue #6 rather than working around it.
 2. While still powered off: set_video(vm='{$name}', use_auto_detect=true) — vRAM auto-detection is required by the spec.
 3. ZFS data volumes, one call per volume:{$diskCalls}
    - ZFS data rides ONLY the PVSCSI adapter, disk_mode='independent_persistent' (keeps the pool out of vCenter snapshots — quiesced snapshots of a live ZFS pool are inconsistent), always thin.
