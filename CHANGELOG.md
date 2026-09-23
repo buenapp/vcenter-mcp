@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- TLS certificate verification is now opt-in: `tls.verify` defaults to
+  false, so vCenter/ESXi endpoints presenting VMCA-issued or
+  self-signed certificates connect without a CA bundle. Set
+  `tls.verify: true` to restore the previous DANE-first strict mode
+  (`tls.ca_cert` / `tls.thumbprint` still honored). The WebMKS console
+  hop is unaffected — it authenticates the ESXi leaf via DANE TLSA or
+  the AcquireTicket thumbprints regardless.
+
 ## [0.2.0] - 2026-09-15
 
 ### Added

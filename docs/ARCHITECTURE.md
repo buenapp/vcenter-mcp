@@ -58,6 +58,9 @@ instance — no network.
 
 ## TLS policy
 
+Verification is opt-in: `tls.verify` defaults to false, so peers are
+accepted without CA validation (vCenter certs are VMCA-issued or
+self-signed and never chain to a standard trust store). When enabled,
 `TlsPolicy::verify()` order (per docs/PLAN.md):
 
 1. `_443._tcp.<host>` TLSA lookup via `Enchilada\Dns\Resolver`. Records

@@ -100,6 +100,13 @@ class TlsPolicyTest extends TestCase
 		$policy->resolve('vcenter.test');
 	}
 
+	public function testVerificationDefaultsOff(): void
+	{
+		$d = (new TlsPolicy())->resolve('vcenter.test');
+		$this->assertSame(TlsPolicy::MODE_INSECURE, $d['mode']);
+		$this->assertFalse($d['verify_peer']);
+	}
+
 	public function testVerifyDisabled(): void
 	{
 		$policy = new TlsPolicy(false, null, null, fn() => $this->fail('TLSA lookup must not run when verify=false'));

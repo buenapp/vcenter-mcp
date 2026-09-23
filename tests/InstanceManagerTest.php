@@ -41,6 +41,14 @@ class InstanceManagerTest extends TestCase
 		$this->assertSame('b', $m->instance('')->name());
 	}
 
+	public function testTlsVerificationDefaultsOff(): void
+	{
+		$m = new InstanceManager($this->config());
+		$d = $m->instance('a')->tlsPolicy()->resolve('a.test');
+		$this->assertSame(\VCenter\TlsPolicy::MODE_INSECURE, $d['mode']);
+		$this->assertFalse($d['verify_peer']);
+	}
+
 	public function testPasswordFromNetrc(): void
 	{
 		$netrc = tempnam(sys_get_temp_dir(), 'netrc');

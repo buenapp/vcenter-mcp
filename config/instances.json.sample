@@ -7,7 +7,7 @@
             "username": "vcadmin",
             "password": null,
             "netrc": true,
-            "tls": {"verify": true, "ca_cert": null, "thumbprint": null},
+            "tls": {"verify": false, "ca_cert": null, "thumbprint": null},
             "exclude_hosts": ["thebe.example.com"],
             "defaults": {"datacenter": null, "cluster": null, "network": "Default", "datastore": null, "folder": null}
         }

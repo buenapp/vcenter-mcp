@@ -155,7 +155,7 @@ class Instance
 		if ($this->tlsPolicy === null) {
 			$tls = $this->config['tls'] ?? [];
 			$this->tlsPolicy = new TlsPolicy(
-				$tls['verify'] ?? true,
+				$tls['verify'] ?? false,
 				$tls['ca_cert'] ?? null,
 				$tls['thumbprint'] ?? null,
 				null, null,

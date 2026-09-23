@@ -14,7 +14,7 @@ Copy `config/instances.json.sample` to `config/instances.json`:
             "username": "vcadmin",
             "password": null,
             "netrc": true,
-            "tls": {"verify": true, "ca_cert": null, "thumbprint": null},
+            "tls": {"verify": false, "ca_cert": null, "thumbprint": null},
             "exclude_hosts": ["thebe.example.com"],
             "defaults": {"datacenter": null, "cluster": null, "network": "Default", "datastore": null, "folder": null}
         }
@@ -27,9 +27,12 @@ Fields:
 - `url` — vCenter base URL (HTTPS).
 - `username` / `password` — SSO credentials. Set `password` to `null`
   and `netrc` to `true` to read it from `~/.netrc` (`machine <host>`).
-- `tls.verify` — enable certificate verification (DANE TLSA first, then
-  the CA store). `tls.ca_cert` points at a CA bundle override;
-  `tls.thumbprint` pins the leaf certificate (SHA-256, colon-hex).
+- `tls.verify` — opt-in certificate verification, off by default.
+  vCenter presents VMCA-issued/self-signed certificates, so out of the
+  box the peer is accepted without CA validation. When enabled the
+  order is DANE TLSA first, then the CA store; `tls.ca_cert` points at
+  a CA bundle override and `tls.thumbprint` pins the leaf certificate
+  (SHA-256, colon-hex).
 - `exclude_hosts` — hostnames (FQDN, case-insensitive) that must never
   receive new VM placements.
 - `defaults` — inventory defaults used when tool parameters are omitted.

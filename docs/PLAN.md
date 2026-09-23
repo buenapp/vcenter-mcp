@@ -69,8 +69,10 @@ share one HTTP engine per instance; the SOAP session cookie
 (`vmware_soap_session`) and the REST token (`vmware-api-session-id`) are held
 on the `Instance`.
 
-### TLS policy (mandatory, global rule)
+### TLS policy
 
+`tls.verify` defaults to false — vCenter certs are VMCA-issued or
+self-signed, so verification is opt-in. When enabled,
 `TlsPolicy::verify(host, port)` order:
 
 1. Look up `_443._tcp.<host>` TLSA via `Enchilada\Dns\Resolver` (type 52).

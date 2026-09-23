@@ -2,7 +2,11 @@
 /**
  * vCenter MCP Server — TLS Policy
  *
- * DANE-first certificate validation for vCenter connections:
+ * Certificate verification is opt-in (`tls.verify`, default false):
+ * vCenter deployments present VMCA-issued or self-signed certificates
+ * that no standard CA store recognizes, so peer verification would
+ * fail closed against every supported target. When enabled, the
+ * validation is DANE-first:
  *
  *   1. _443._tcp.<host> TLSA records (DANE-EE, usage 3): probe the peer
  *      with peer verification off and CURLOPT_CERTINFO on, extract the
@@ -57,7 +61,7 @@ class TlsPolicy
 	private array $decisions = [];
 
 	/**
-	 * @param bool          $verify     Master switch (tls.verify)
+	 * @param bool          $verify     Master switch (tls.verify), default false
 	 * @param string|null   $caCert     CA bundle override (tls.ca_cert)
 	 * @param string|null   $thumbprint SHA-256 leaf pin (tls.thumbprint)
 	 * @param callable|null $tlsaLookup TLSA lookup seam: fn(string $name): array of Resolver rows
@@ -65,7 +69,7 @@ class TlsPolicy
 	 * @param callable|null $log        Log sink: fn(string $message)
 	 */
 	public function __construct(
-		bool $verify = true,
+		bool $verify = false,
 		?string $caCert = null,
 		?string $thumbprint = null,
 		?callable $tlsaLookup = null,

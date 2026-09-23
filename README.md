@@ -19,8 +19,9 @@ agents over stdio. Built on the [Enchilada Framework](https://buenapp.org)
   wss -> RFB on the ESXi host) or vim25 SOAP — screenshots (PNG),
   keystrokes (X11 keysyms or USB HID), blocking VM questions;
   `method=auto` tries WebMKS and falls back to SOAP
-- DANE-first TLS validation (TLSA records, CA fallback, optional
-  SHA-256 certificate pin)
+- Relaxed TLS by default (vCenter certs are VMCA-issued/self-signed);
+  opt-in DANE-first validation (TLSA records, CA fallback, optional
+  SHA-256 certificate pin) via `tls.verify`
 - Credentials inline or via `~/.netrc`
 
 ## Requirements
@@ -51,15 +52,6 @@ php bin/vcenter-mcp --config=config/instances.json
 
 ### Quick start
 
-Grab the vCenter CA bundle and configure an instance:
-
-```sh
-mkdir -p ~/.config/vcenter-mcp
-curl -sko /tmp/vc-certs.zip 'https://<vcenter>/certs/download.zip'
-unzip -o /tmp/vc-certs.zip -d /tmp/vc-certs
-cat /tmp/vc-certs/certs/lin/*.0 /tmp/vc-certs/certs/lin/*.r0.crt > ~/.config/vcenter-mcp/ca-bundle.pem 2>/dev/null || cat /tmp/vc-certs/certs/lin/* > ~/.config/vcenter-mcp/ca-bundle.pem
-```
-
 `~/.config/vcenter-mcp/instances.json`:
 
 ```json
@@ -69,12 +61,19 @@ cat /tmp/vc-certs/certs/lin/*.0 /tmp/vc-certs/certs/lin/*.r0.crt > ~/.config/vce
         "main": {
             "url": "https://<vcenter>",
             "username": "user@vsphere.local",
-            "password": "…",
-            "tls": {"verify": true, "ca_cert": "~/.config/vcenter-mcp/ca-bundle.pem"}
+            "password": "…"
         }
     }
 }
 ```
+
+Certificate verification is off by default — vCenter certs are
+VMCA-issued or self-signed and never chain to a standard trust store.
+To verify the peer, set `"tls": {"verify": true}`: the policy is
+DANE-first (TLSA records), falls back to the CA store, and supports
+`"ca_cert"` (path to a CA bundle, e.g. the one under
+`https://<vcenter>/certs/download.zip`) and `"thumbprint"`
+(SHA-256 leaf pin).
 
 REST/SSO usernames may need the `@vsphere.local` suffix. `password` may
 be `null` with `"netrc": true` to read it from `~/.netrc` (`machine
