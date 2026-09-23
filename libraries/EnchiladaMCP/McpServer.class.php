@@ -63,6 +63,16 @@ class McpServer
 	public const ERR_HEADER_MISMATCH = -32020;
 
 	/**
+	 * Response-array key marking a `subscriptions/listen` handshake
+	 * (2026-07-28) instead of a normal result. Value shape:
+	 * ['subscriptionId' => <request id>, 'notifications' => <honored
+	 * filter>]. Transports that understand the Subscribe-and-Notify
+	 * pattern own the response stream from here; everything else should
+	 * surface the request as unsupported.
+	 */
+	public const SUBSCRIPTION_STREAM_MARK = '__subscription_stream';
+
+	/**
 	 * @var string[] Every MCP protocol version this server can speak, newest
 	 *               first, both eras. Used for `server/discover` and for the
 	 *               UnsupportedProtocolVersion data.supported list.
@@ -75,11 +85,21 @@ class McpServer
 	/** @var string[] Per-request `_meta` revisions (no handshake, no sessions). */
 	private array $modernProtocolVersions = [self::MODERN_PROTOCOL_VERSION];
 
+	/**
+	 * @var string[] Notification types this server honors for
+	 *               `subscriptions/listen` (subset of: toolsListChanged,
+	 *               promptsListChanged, resourcesListChanged,
+	 *               resourceSubscriptions). Empty (default) means
+	 *               subscriptions are acknowledged with an empty filter —
+	 *               the spec-compliant "none supported".
+	 */
+	private array $supportedSubscriptionTypes = [];
+
 	/** @var string Version agreed during the last `initialize`. */
 	private string $negotiatedProtocolVersion = self::LEGACY_PROTOCOL_VERSION;
 
 	/** @var string[] Result methods that carry ttlMs/cacheScope on modern requests. */
-	private const CACHEABLE_LIST_METHODS = ['server/discover', 'tools/list', 'resources/list', 'resources/templates/list', 'resources/read'];
+	private const CACHEABLE_LIST_METHODS = ['server/discover', 'tools/list', 'resources/list', 'resources/templates/list', 'resources/read', 'prompts/list'];
 
 	/** @var int ttlMs hint for list/discover results on modern requests (1 hour; the tool and resource sets change only with configuration). */
 	private int $listCacheTtlMs = 3600000;
@@ -333,6 +353,27 @@ class McpServer
 	}
 
 	/**
+	 * Declare which notification types `subscriptions/listen` may honor
+	 * (2026-07-28 Subscribe-and-Notify). The acknowledgment echoes only
+	 * types that were both requested and in this list.
+	 *
+	 * @param  string[] $types Subset of: toolsListChanged,
+	 *                         promptsListChanged, resourcesListChanged,
+	 *                         resourceSubscriptions
+	 * @throws \InvalidArgumentException on an unknown type
+	 */
+	public function setSupportedSubscriptions(array $types): self
+	{
+		foreach ($types as $type) {
+			if (!in_array($type, ['toolsListChanged', 'promptsListChanged', 'resourcesListChanged', 'resourceSubscriptions'], true)) {
+				throw new \InvalidArgumentException("unknown subscription type '{$type}'");
+			}
+		}
+		$this->supportedSubscriptionTypes = array_values(array_unique($types));
+		return $this;
+	}
+
+	/**
 	 * Set the human-readable display name (Implementation.title, 2025-11-25).
 	 */
 	public function setTitle(string $title): self
@@ -506,6 +547,14 @@ class McpServer
 			]);
 		}
 
+		// subscriptions/listen (2026-07-28) never answers in-line: it
+		// returns the stream marker for the transport to take over with.
+		if ($method === 'subscriptions/listen') {
+			$this->log("Request {$method} (id=" . json_encode($id) . ') -> subscription stream handoff');
+			$this->activeProgressToken = null; // stream is the transport's from here; no progress token to track
+			return $this->handleSubscriptionsListen($request, $id, $modern);
+		}
+
 		try {
 			if ($method === 'ping' && $modern) {
 				// Ping was removed from the modern revision; returning a
@@ -522,6 +571,9 @@ class McpServer
 				'resources/list' => $this->handleResourcesList($params),
 				'resources/templates/list' => $this->handleResourceTemplatesList($params),
 				'resources/read' => $this->handleResourcesRead($params),
+				'prompts/list' => $this->handlePromptsList($params),
+				'prompts/get' => $this->handlePromptsGet($params),
+				'completion/complete' => $this->handleCompletionComplete($params),
 				'ping' => new \stdClass(),
 				default => throw new \Exception("Method not found: {$method}", -32601),
 			};
@@ -671,6 +723,13 @@ class McpServer
 		if ($this->registry->hasResources()) {
 			$capabilities['resources'] = new \stdClass();
 		}
+		// Never listChanged: the prompt and tool sets are configuration-static.
+		if ($this->registry->hasPrompts()) {
+			$capabilities['prompts'] = new \stdClass();
+		}
+		if ($this->registry->hasCompletions()) {
+			$capabilities['completions'] = new \stdClass();
+		}
 		return $capabilities;
 	}
 
@@ -704,7 +763,9 @@ class McpServer
 	 */
 	private function modernizeResult(array $result, string $method): array
 	{
-		$result = ['resultType' => 'complete'] + $result;
+		// 'complete' is the default; handlers that produced another type
+		// (e.g. input_required for MRTR elicitation) keep theirs.
+		$result['resultType'] ??= 'complete';
 		if (in_array($method, self::CACHEABLE_LIST_METHODS, true)) {
 			$result['ttlMs'] = $method === 'resources/read' ? $this->readCacheTtlMs : $this->listCacheTtlMs;
 			$result['cacheScope'] = $this->cacheScope;
@@ -740,6 +801,15 @@ class McpServer
 		$name = $params['name'] ?? '';
 		$arguments = $params['arguments'] ?? [];
 
+		// MRTR retry (2026-07-28): fold inputResponses into the tool
+		// arguments; each answer lands under its request key as the full
+		// {action, content} result. Unrecognized shapes are ignored.
+		foreach ((array)($params['inputResponses'] ?? []) as $key => $answer) {
+			if (is_string($key) && is_array($answer) && isset($answer['action']) && is_string($answer['action'])) {
+				$arguments[$key] = $answer;
+			}
+		}
+
 		if (!$this->registry->hasTool($name)) {
 			// Return as a tool-level error result rather than a protocol-level
 			// -32602: several MCP clients treat protocol errors as connection
@@ -752,6 +822,30 @@ class McpServer
 
 		try {
 			$result = $this->registry->callTool($name, $arguments);
+		} catch (ElicitationRequired $e) {
+			// User confirmation needed mid-call. MRTR eligibility: modern-era
+			// request whose client declared the elicitation capability in
+			// _meta — spec forbids inputRequests for anything less.
+			$clientCaps = (array)($params['_meta']['io.modelcontextprotocol/clientCapabilities'] ?? []);
+			if (self::declaredVersionOf(['params' => $params]) !== null && isset($clientCaps['elicitation'])) {
+				return [
+					'resultType' => 'input_required',
+					'inputRequests' => [
+						$e->key => [
+							'method' => 'elicitation/create',
+							'params' => [
+								'mode' => 'form',
+								'message' => $e->getMessage(),
+								'requestedSchema' => $e->schema,
+							],
+						],
+					],
+				];
+			}
+			// Legacy era or no elicitation capability: the call stays a
+			// tool-level failure with the direct-argument escape hatch.
+			return ToolResult::error($e->getMessage()
+				. " — confirmation required; call again with the '{$e->key}' argument set to the answer object {action: \"accept\", content: {...}}.")->toArray();
 		} catch (ToolWarningInterface $e) {
 			// Uncertain-but-not-failed outcome (e.g. upstream timeout where
 			// the server may still have completed the operation). Return as
@@ -787,6 +881,134 @@ class McpServer
 			'id' => $id,
 			'result' => $result,
 		];
+	}
+
+	/**
+	 * Handle a subscriptions/listen request (2026-07-28 Subscribe-and-
+	 * Notify): modern requests only, and the response is the stream marker
+	 * ({@see SUBSCRIPTION_STREAM_MARK}) rather than a normal result. The
+	 * honored filter is the intersection of what the client requested and
+	 * what the application declared via setSupportedSubscriptions().
+	 *
+	 * @param  array<string,mixed> $request Full decoded request
+	 * @param  string|int|null     $id      JSON-RPC request id
+	 * @param  bool                $modern  Whether the request is modern-era
+	 * @return array<string,mixed>          Stream marker or error response
+	 */
+	private function handleSubscriptionsListen(array $request, string|int|null $id, bool $modern): array
+	{
+		if (!$modern) {
+			return $this->errorResponse($id, -32601, 'Method not found: subscriptions/listen (requires protocol revision ' . self::MODERN_PROTOCOL_VERSION . ')');
+		}
+		if ($id === null) {
+			return []; // a listen request without an id is a notification; nothing to do
+		}
+		return [
+			'jsonrpc' => '2.0',
+			'id' => $id,
+			self::SUBSCRIPTION_STREAM_MARK => [
+				'subscriptionId' => $id,
+				'notifications' => $this->normalizeSubscriptionFilter($request['params']['notifications'] ?? []),
+			],
+		];
+	}
+
+	/**
+	 * Intersect a requested subscriptions filter with the supported types.
+	 * Unknown keys, unsupported types and malformed values are dropped;
+	 * resourceSubscriptions URIs are exact-match strings (no globbing) and
+	 * are honored as given with empties removed.
+	 *
+	 * @param  array<string,mixed>  $requested params.notifications
+	 * @return array<string,mixed>             Acknowledgment filter
+	 */
+	private function normalizeSubscriptionFilter(mixed $requested): array
+	{
+		if (!is_array($requested)) {
+			$requested = [];
+		}
+		$ack = [];
+		foreach (['toolsListChanged', 'promptsListChanged', 'resourcesListChanged'] as $flag) {
+			if (!empty($requested[$flag]) && in_array($flag, $this->supportedSubscriptionTypes, true)) {
+				$ack[$flag] = true;
+			}
+		}
+		if (isset($requested['resourceSubscriptions']) && in_array('resourceSubscriptions', $this->supportedSubscriptionTypes, true)) {
+			$uris = [];
+			foreach ((array)$requested['resourceSubscriptions'] as $uri) {
+				if (is_string($uri) && $uri !== '') {
+					$uris[] = $uri;
+				}
+			}
+			$ack['resourceSubscriptions'] = array_values(array_unique($uris));
+		}
+		return $ack;
+	}
+
+	/**
+	 * Handle prompts/list request.
+	 *
+	 * @param  array<string,mixed> $params Request parameters
+	 * @return array<string,mixed>         Prompts list response
+	 */
+	private function handlePromptsList(array $params): array
+	{
+		return ['prompts' => $this->registry->listPrompts()];
+	}
+
+	/**
+	 * Handle prompts/get request: resolve a prompt's messages. Unknown
+	 * names and missing required arguments are -32602 per the spec's error
+	 * guidance.
+	 *
+	 * @param  array<string,mixed> $params Request parameters (name, arguments?)
+	 * @return array<string,mixed>         {description, messages}
+	 */
+	private function handlePromptsGet(array $params): array
+	{
+		$name = (string)($params['name'] ?? '');
+		$arguments = (array)($params['arguments'] ?? []);
+		try {
+			return $this->registry->getPrompt($name, $arguments);
+		} catch (\InvalidArgumentException $e) {
+			throw new \InvalidArgumentException($e->getMessage(), -32602, $e);
+		}
+	}
+
+	/**
+	 * Handle completion/complete: suggestions for one prompt or resource
+	 * template argument. Unknown references are -32602; a known reference
+	 * without a provider for that argument returns empty suggestions.
+	 *
+	 * @param  array<string,mixed> $params ref / argument / context?
+	 * @return array<string,mixed>         {completion: {values, total, hasMore}}
+	 */
+	private function handleCompletionComplete(array $params): array
+	{
+		$ref = $params['ref'] ?? null;
+		$argument = $params['argument'] ?? null;
+		if (!is_array($ref) || !is_array($argument)) {
+			throw new \InvalidArgumentException('completion/complete requires ref and argument objects', -32602);
+		}
+		$name = (string)($argument['name'] ?? '');
+		$value = (string)($argument['value'] ?? '');
+		$context = (array)($params['context']['arguments'] ?? []);
+		try {
+			$result = $this->registry->complete($ref, $name, $value, $context);
+		} catch (\InvalidArgumentException $e) {
+			throw new \InvalidArgumentException($e->getMessage(), -32602, $e);
+		}
+
+		if (is_array($result) && array_is_list($result)) {
+			$result = ['values' => $result];
+		}
+		$values = is_array($result) ? array_slice(array_values((array)($result['values'] ?? [])), 0, 100) : [];
+		$total = is_array($result) && isset($result['total']) ? (int)$result['total'] : count($values);
+		return ['completion' => [
+			'values' => $values,
+			'total' => $total,
+			'hasMore' => is_array($result) ? (bool)($result['hasMore'] ?? false) : false,
+		]];
 	}
 
 	/**

@@ -53,6 +53,34 @@ class ToolRegistry
 	private array $resourceHandlers = [];
 
 	/**
+	 * Registered prompts indexed by name.
+	 *
+	 * @var array<string,array{name:string,title?:string,description:string,arguments?:array}>
+	 */
+	private array $prompts = [];
+
+	/**
+	 * Prompt handlers indexed by name.
+	 *
+	 * @var array<string,array{0:object,1:string}>
+	 */
+	private array $promptHandlers = [];
+
+	/**
+	 * Prompt argument metadata (required flags) indexed by prompt name.
+	 *
+	 * @var array<string,array<string,bool>>
+	 */
+	private array $promptRequired = [];
+
+	/**
+	 * Completion providers indexed by "{refType}|{refName}|{argument}".
+	 *
+	 * @var array<string,array{0:object,1:string}>
+	 */
+	private array $completionHandlers = [];
+
+	/**
 	 * Register an object's methods marked with #[McpTool] or #[McpResource] attributes.
 	 *
 	 * @param object $handler Object containing tool/resource methods
@@ -66,6 +94,19 @@ class ToolRegistry
 			$resourceAttrs = $method->getAttributes(McpResource::class);
 			if (!empty($resourceAttrs)) {
 				$this->registerResource($handler, $method, $resourceAttrs[0]->newInstance());
+			}
+
+			// Check for prompt attributes
+			$promptAttrs = $method->getAttributes(McpPrompt::class);
+			if (!empty($promptAttrs)) {
+				$this->registerPrompt($handler, $method, $promptAttrs[0]->newInstance());
+			}
+
+			// Check for completion provider attributes (repeatable: one
+			// method may serve several prompt/resource arguments)
+			foreach ($method->getAttributes(McpComplete::class) as $completeAttr) {
+				$attr = $completeAttr->newInstance();
+				$this->completionHandlers[$attr->refType . '|' . $attr->refName . '|' . $attr->argument] = [$handler, $method->getName()];
 			}
 
 			// Check for tool attributes
@@ -359,6 +400,152 @@ class ToolRegistry
 	public function hasResources(): bool
 	{
 		return !empty($this->resourceTemplates);
+	}
+
+	/**
+	 * Register a single prompt from a method and attribute.
+	 */
+	private function registerPrompt(object $handler, \ReflectionMethod $method, McpPrompt $attr): void
+	{
+		$description = $attr->description;
+		if ($description === null) {
+			$docComment = $method->getDocComment();
+			if ($docComment) {
+				preg_match('/\*\s+([^@\n]+)/', $docComment, $matches);
+				$description = trim($matches[1] ?? '');
+			}
+		}
+
+		$prompt = [
+			'name' => $attr->name,
+			'description' => $description ?: "Prompt: {$attr->name}",
+		];
+		if ($attr->title !== null) {
+			$prompt['title'] = $attr->title;
+		}
+		$required = [];
+		$arguments = [];
+		foreach ($attr->arguments as $argument) {
+			$argumentName = $argument['name'] ?? null;
+			if (!is_string($argumentName) || $argumentName === '') {
+				throw new \InvalidArgumentException("prompt '{$attr->name}' declares an argument without a name");
+			}
+			$entry = ['name' => $argumentName];
+			if (isset($argument['description'])) {
+				$entry['description'] = $argument['description'];
+			}
+			if (!empty($argument['required'])) {
+				$entry['required'] = true;
+			}
+			$arguments[] = $entry;
+			$required[$argumentName] = !empty($argument['required']);
+		}
+		if ($arguments !== []) {
+			$prompt['arguments'] = $arguments;
+		}
+		$this->prompts[$attr->name] = $prompt;
+		$this->promptHandlers[$attr->name] = [$handler, $method->getName()];
+		$this->promptRequired[$attr->name] = $required;
+	}
+
+	/**
+	 * List all registered prompts in deterministic (name) order.
+	 *
+	 * @return array<array<string,mixed>>
+	 */
+	public function listPrompts(): array
+	{
+		$prompts = array_values($this->prompts);
+		usort($prompts, fn($a, $b) => strcmp($a['name'], $b['name']));
+		return $prompts;
+	}
+
+	public function hasPrompts(): bool
+	{
+		return !empty($this->promptHandlers);
+	}
+
+	public function hasPrompt(string $name): bool
+	{
+		return isset($this->promptHandlers[$name]);
+	}
+
+	/**
+	 * Resolve a prompt: invoke its handler with the supplied arguments.
+	 *
+	 * @param  array<string,string> $arguments
+	 * @return array{description:string,messages:array}
+	 * @throws \InvalidArgumentException unknown prompt or missing required argument
+	 */
+	public function getPrompt(string $name, array $arguments): array
+	{
+		if (!isset($this->promptHandlers[$name])) {
+			throw new \InvalidArgumentException("Unknown prompt: {$name}");
+		}
+		foreach (($this->promptRequired[$name] ?? []) as $argName => $isRequired) {
+			if ($isRequired && (!isset($arguments[$argName]) || $arguments[$argName] === '')) {
+				throw new \InvalidArgumentException("Missing required prompt argument: {$argName}");
+			}
+		}
+
+		[$handler, $methodName] = $this->promptHandlers[$name];
+		$method = new \ReflectionMethod($handler, $methodName);
+		$params = [];
+		foreach ($method->getParameters() as $param) {
+			$paramName = $param->getName();
+			if (isset($arguments[$paramName])) {
+				$params[] = $arguments[$paramName];
+			} elseif ($param->isOptional()) {
+				$params[] = $param->getDefaultValue();
+			} else {
+				throw new \InvalidArgumentException("Missing required prompt argument: {$paramName}");
+			}
+		}
+
+		$messages = $method->invokeArgs($handler, $params);
+		if (!is_array($messages)) {
+			throw new \RuntimeException("prompt '{$name}' returned no message list");
+		}
+		return [
+			'description' => $this->prompts[$name]['description'],
+			'messages' => $messages,
+		];
+	}
+
+	/**
+	 * Check whether any completion providers are registered.
+	 */
+	public function hasCompletions(): bool
+	{
+		return !empty($this->completionHandlers);
+	}
+
+	/**
+	 * Run the completion provider for one argument, if any.
+	 *
+	 * @param  array<string,mixed> $ref     {'type': 'ref/prompt'|'ref/resource', 'name'|'uri': string}
+	 * @param  array<string,string> $context Already-resolved sibling arguments
+	 * @return mixed                         Provider result: string[] or values/total/hasMore shape
+	 * @throws \InvalidArgumentException unknown prompt or resource reference
+	 */
+	public function complete(array $ref, string $argumentName, string $value, array $context): mixed
+	{
+		$type = $ref['type'] ?? '';
+		$refName = $type === 'ref/prompt'
+			? (string)($ref['name'] ?? '')
+			: (string)($ref['uri'] ?? '');
+		if ($type === 'ref/prompt' && !isset($this->promptHandlers[$refName])) {
+			throw new \InvalidArgumentException("Unknown prompt: {$refName}");
+		}
+		if ($type === 'ref/resource' && !isset($this->resourceTemplates[$refName])) {
+			throw new \InvalidArgumentException("Unknown resource: {$refName}");
+		}
+		$key = $type . '|' . $refName . '|' . $argumentName;
+		if (!isset($this->completionHandlers[$key])) {
+			return []; // argument not describable further; empty suggestions
+		}
+		[$handler, $methodName] = $this->completionHandlers[$key];
+		return (new \ReflectionMethod($handler, $methodName))->invoke($handler, $value, $context);
 	}
 
 	/**

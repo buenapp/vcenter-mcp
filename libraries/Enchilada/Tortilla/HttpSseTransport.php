@@ -86,6 +86,24 @@ class HttpSseTransport
 	private $afterToolsCall = null;
 
 	/**
+	 * Response-array key marking a `subscriptions/listen` handshake
+	 * (2026-07-28) instead of a normal result. Emitted by
+	 * EnchiladaMCP\McpServer as McpServer::SUBSCRIPTION_STREAM_MARK;
+	 * restated here because this library deliberately does not depend on
+	 * the protocol package.
+	 */
+	private const SUBSCRIPTION_STREAM_MARK = '__subscription_stream';
+
+	/**
+	 * @var callable|null Notification source for subscription streams:
+	 *                    function(array $filter): \Generator — yields
+	 *                    ['method' => ..., 'params' => [...]] notifications,
+	 *                    or null ticks used for keepalives and
+	 *                    disconnect detection.
+	 */
+	private $subscriptionFeed = null;
+
+	/**
 	 * Create a new HTTP SSE transport.
 	 *
 	 * The transport never types against a protocol server; the
@@ -133,6 +151,23 @@ class HttpSseTransport
 	public function onAfterToolsCall(callable $callback): void
 	{
 		$this->afterToolsCall = $callback;
+	}
+
+	/**
+	 * Register the notification source for subscription streams
+	 * (2026-07-28 Subscribe-and-Notify). The callable receives the honored
+	 * subscription filter and returns a Generator yielding notification
+	 * arrays (['method' => 'notifications/resources/updated', 'params' =>
+	 * [...]]) or null ticks. Returning nothing (or ending) closes the
+	 * stream gracefully. When unset, a subscriptions/listen request is
+	 * acknowledged and closed immediately — the spec-compliant answer of a
+	 * server that does not stream.
+	 *
+	 * @param callable $feed function(array $filter): \Generator
+	 */
+	public function setSubscriptionFeed(callable $feed): void
+	{
+		$this->subscriptionFeed = $feed;
 	}
 
 	/**
@@ -244,6 +279,14 @@ class HttpSseTransport
 		// Handle JSON-RPC request
 		$response = ($this->handler)($request);
 
+		// subscriptions/listen (2026-07-28): the protocol handler answers
+		// with a stream marker instead of a result; this transport owns the
+		// long-lived SSE response from here.
+		if (is_array($response) && array_key_exists(self::SUBSCRIPTION_STREAM_MARK, $response)) {
+			$this->serveSubscriptionStream($response[self::SUBSCRIPTION_STREAM_MARK]);
+			exit;
+		}
+
 		// Post-processing hook for tools/call
 		if ($rpcMethod === 'tools/call' && $this->afterToolsCall !== null) {
 			try {
@@ -326,9 +369,10 @@ class HttpSseTransport
 			if (!$ok) {
 				return $fail('Mcp-Name header is missing or malformed');
 			}
-			$expected = $bodyMethod === 'tools/call'
-				? ($request['params']['name'] ?? null)
-				: ($request['params']['uri'] ?? null);
+			// tools/call and prompts/get are name-addressed; resources/read is uri-addressed.
+			$expected = $bodyMethod === 'resources/read'
+				? ($request['params']['uri'] ?? null)
+				: ($request['params']['name'] ?? null);
 			if (!is_string($expected) || $nameValue !== $expected) {
 				return $fail("Mcp-Name header value '{$nameValue}' does not match body value '" . (is_string($expected) ? $expected : '(missing)') . "'");
 			}
@@ -457,6 +501,85 @@ class HttpSseTransport
 			header('Content-Type: application/json');
 			echo $json;
 		}
+	}
+
+	/**
+	 * Serve a subscriptions/listen stream (2026-07-28 Subscribe-and-Notify).
+	 *
+	 * Sends the acknowledgment first, then relays notifications from the
+	 * registered feed with the subscription id injected into each
+	 * `params._meta`. The stream ends with the graceful-closure response
+	 * to the originating request when the feed exhausts, when there is
+	 * nothing to honor, or when the client disconnects (detected between
+	 * ticks).
+	 *
+	 * Public so tests can drive it without the handle()/exit wrapper.
+	 *
+	 * @param array<string,mixed> $mark ['subscriptionId' => id, 'notifications' => honored filter]
+	 */
+	public function serveSubscriptionStream(array $mark): void
+	{
+		$subscriptionId = $mark['subscriptionId'] ?? null;
+		$ack = is_array($mark['notifications'] ?? null) ? $mark['notifications'] : [];
+
+		set_time_limit(0);
+
+		$flush = static function (): void {
+			if (ob_get_level() > 0) {
+				@ob_flush();
+			}
+			flush();
+		};
+		$send = static function (array $message) use ($flush): void {
+			echo "event: message\n";
+			echo 'data: ' . json_encode($message, JSON_UNESCAPED_SLASHES) . "\n\n";
+			$flush();
+		};
+
+		http_response_code(200);
+		header('Content-Type: text/event-stream');
+		header('Cache-Control: no-cache');
+		header('Connection: keep-alive');
+		header('X-Accel-Buffering: no');
+
+		$send([
+			'jsonrpc' => '2.0',
+			'method' => 'notifications/subscriptions/acknowledged',
+			'params' => [
+				'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+				'notifications' => $ack === [] ? new \stdClass() : $ack,
+			],
+		]);
+
+		$close = [
+			'jsonrpc' => '2.0',
+			'id' => $subscriptionId,
+			'result' => [
+				'resultType' => 'complete',
+				'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+			],
+		];
+
+		// Nothing to deliver: honor nothing that exists, close gracefully.
+		if ($this->subscriptionFeed === null || $ack === []) {
+			$send($close);
+			return;
+		}
+
+		$feed = ($this->subscriptionFeed)($ack);
+		foreach ($feed as $notification) {
+			if (connection_aborted()) {
+				break;
+			}
+			if ($notification === null) {
+				echo ": ka\n\n";
+				$flush();
+				continue;
+			}
+			$notification['params']['_meta']['io.modelcontextprotocol/subscriptionId'] = $subscriptionId;
+			$send($notification);
+		}
+		$send($close);
 	}
 
 	/**

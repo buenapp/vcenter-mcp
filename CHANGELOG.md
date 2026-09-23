@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- Re-vendored EnchiladaMCP and Tortilla from canonical masters:
+  prompts (`prompts/list`, `prompts/get`), `completion/complete`, MRTR
+  elicitation for `tools/call`, and `subscriptions/listen` stream
+  support (Extras d16a015/599fd03/0220a42, Tortilla 4d48ada/6ebb814).
+  No behavior change — no prompt, completion or subscription handlers
+  are registered yet; capabilities stay absent until they are.
+  `VendoredLibraryLayoutTest` is green again.
+
 ## [0.3.0] - 2026-09-23
 
 ### Changed

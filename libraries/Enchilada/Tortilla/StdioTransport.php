@@ -669,6 +669,30 @@ class StdioTransport
 			return;
 		}
 
+		// subscriptions/listen (2026-07-28): the protocol handler answers
+		// with a stream marker (EnchiladaMCP\McpServer::SUBSCRIPTION_STREAM_MARK,
+		// restated as a literal — this library does not depend on the
+		// protocol package). stdio is single-channel and this transport
+		// offers no notification multiplexing, so the subscription is
+		// acknowledged and gracefully closed immediately.
+		if (array_key_exists('__subscription_stream', $response)) {
+			$mark = $response['__subscription_stream'];
+			$subscriptionId = $mark['subscriptionId'] ?? null;
+			$ack = is_array($mark['notifications'] ?? null) ? $mark['notifications'] : [];
+			$this->sendNotification('notifications/subscriptions/acknowledged', [
+				'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+				'notifications' => $ack === [] ? new \stdClass() : $ack,
+			]);
+			$response = [
+				'jsonrpc' => '2.0',
+				'id' => $subscriptionId,
+				'result' => [
+					'resultType' => 'complete',
+					'_meta' => ['io.modelcontextprotocol/subscriptionId' => $subscriptionId],
+				],
+			];
+		}
+
 		$output = json_encode($response, JSON_UNESCAPED_SLASHES);
 		if ($output === false) {
 			$this->log('Failed to encode response: ' . json_last_error_msg());
