@@ -11,6 +11,10 @@
   No behavior change — no prompt, completion or subscription handlers
   are registered yet; capabilities stay absent until they are.
   `VendoredLibraryLayoutTest` is green again.
+- Tool and parameter descriptions compacted to cut `tools/list` size
+  (7,135 -> 5,654 Qwen tokens): restating parameter descriptions
+  dropped (e.g. `instance`), implementation notes removed from tool
+  descriptions. Schemas, names and behavior unchanged.
 
 ## [0.3.0] - 2026-09-23
 

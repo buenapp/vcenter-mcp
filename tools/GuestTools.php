@@ -61,13 +61,13 @@ class GuestTools
 
 	#[McpTool(
 		name: 'get_guest_info',
-		description: 'Guest OS identity and network interfaces (requires VMware Tools; a clean message is returned when Tools is absent).',
+		description: 'Get guest OS identity and network interfaces (requires VMware Tools).',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -99,13 +99,13 @@ class GuestTools
 
 	#[McpTool(
 		name: 'find_vm_ip',
-		description: 'Guest IP addresses when VMware Tools reports them; otherwise the NIC MACs with guidance for finding IPs via DHCP leases or the console.',
+		description: 'Get guest IPs from VMware Tools; without Tools, returns NIC MACs to look up in DHCP leases.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -152,22 +152,22 @@ class GuestTools
 
 	#[McpTool(
 		name: 'guest_run',
-		description: 'Run a program inside a guest via VMware Tools (vim25 guest operations) and wait for it to exit. Pass `command` for a /bin/sh command line (pipes/redirection allowed), or `program` + `arguments` for a direct binary (no shell interpretation). With capture_output (default) stdout+stderr are redirected in the guest and returned — capture needs /bin/sh, so it is POSIX guests only. Requires VMware Tools running and guest credentials.',
+		description: 'Run a program in the guest via VMware Tools and wait for exit. Give command (via /bin/sh -c) or program + arguments (no shell).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'guest_username' => ['type' => 'string', 'description' => 'Guest OS username'],
-				'guest_password' => ['type' => 'string', 'description' => 'Guest OS password'],
-				'command' => ['type' => 'string', 'description' => 'Shell command line run via /bin/sh -c (mutually exclusive with program)'],
-				'program' => ['type' => 'string', 'description' => 'Absolute path to a binary in the guest (mutually exclusive with command)'],
-				'arguments' => ['type' => 'string', 'description' => 'Arguments for program (ignored when command is given)'],
-				'working_directory' => ['type' => 'string', 'description' => 'Working directory inside the guest'],
-				'env' => ['type' => 'object', 'additionalProperties' => ['type' => 'string'], 'description' => 'Extra environment variables'],
-				'capture_output' => ['type' => 'boolean', 'description' => 'Capture stdout+stderr (default true; POSIX guests only)'],
-				'timeout' => ['type' => 'integer', 'description' => 'Seconds to wait for the process to exit (default 120)'],
-				'interactive_session' => ['type' => 'boolean', 'description' => 'Run in an interactive guest session (Windows desktop)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'guest_username' => ['type' => 'string'],
+				'guest_password' => ['type' => 'string'],
+				'command' => ['type' => 'string', 'description' => 'Shell command line; excludes program'],
+				'program' => ['type' => 'string', 'description' => 'Absolute binary path; excludes command'],
+				'arguments' => ['type' => 'string', 'description' => 'For program'],
+				'working_directory' => ['type' => 'string'],
+				'env' => ['type' => 'object', 'additionalProperties' => ['type' => 'string']],
+				'capture_output' => ['type' => 'boolean', 'description' => 'Return stdout+stderr (default true; POSIX guests only)'],
+				'timeout' => ['type' => 'integer', 'description' => 'Seconds (default 120)'],
+				'interactive_session' => ['type' => 'boolean', 'description' => 'Run in the interactive (Windows desktop) session'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password'],
 		]
@@ -214,16 +214,16 @@ class GuestTools
 
 	#[McpTool(
 		name: 'guest_process_status',
-		description: 'List processes inside a guest via VMware Tools (optionally filtered to specific pids). Exited processes report exit_code and end_time.',
+		description: 'List guest processes via VMware Tools; exited ones include exit_code and end_time.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'guest_username' => ['type' => 'string', 'description' => 'Guest OS username'],
-				'guest_password' => ['type' => 'string', 'description' => 'Guest OS password'],
-				'pids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Limit to these guest PIDs (default: all processes Tools reports)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'guest_username' => ['type' => 'string'],
+				'guest_password' => ['type' => 'string'],
+				'pids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Default: all'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password'],
 		]
@@ -237,20 +237,20 @@ class GuestTools
 
 	#[McpTool(
 		name: 'guest_upload',
-		description: 'Upload a file into a guest via VMware Tools. Content comes from exactly one of content (text), content_base64, or local_path (file on the MCP server). permissions sets POSIX mode bits as an integer (e.g. 420 for 0644, 384 for 0600).',
+		description: 'Upload a file into the guest via VMware Tools. Give exactly one of content, content_base64 or local_path.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'guest_username' => ['type' => 'string', 'description' => 'Guest OS username'],
-				'guest_password' => ['type' => 'string', 'description' => 'Guest OS password'],
-				'guest_path' => ['type' => 'string', 'description' => 'Destination path inside the guest'],
-				'content' => ['type' => 'string', 'description' => 'Text content to upload'],
-				'content_base64' => ['type' => 'string', 'description' => 'Base64-encoded content to upload'],
-				'local_path' => ['type' => 'string', 'description' => 'Path on the MCP server to read the content from'],
-				'overwrite' => ['type' => 'boolean', 'description' => 'Overwrite an existing file (default true)'],
-				'permissions' => ['type' => 'integer', 'description' => 'POSIX mode bits as an integer (e.g. 420 for 0644)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'guest_username' => ['type' => 'string'],
+				'guest_password' => ['type' => 'string'],
+				'guest_path' => ['type' => 'string', 'description' => 'Destination'],
+				'content' => ['type' => 'string', 'description' => 'Text'],
+				'content_base64' => ['type' => 'string'],
+				'local_path' => ['type' => 'string', 'description' => 'Source file on the MCP server host'],
+				'overwrite' => ['type' => 'boolean', 'description' => 'Default true'],
+				'permissions' => ['type' => 'integer', 'description' => 'POSIX mode as decimal (420 = 0644, 384 = 0600)'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'guest_path'],
 		]
@@ -291,17 +291,17 @@ class GuestTools
 
 	#[McpTool(
 		name: 'guest_download',
-		description: 'Download a file from a guest via VMware Tools. Returns the content as text (or base64 when binary); with local_path the file is written on the MCP server instead.',
+		description: 'Download a file from the guest via VMware Tools. Returns text (base64 if binary), or writes to local_path.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'guest_username' => ['type' => 'string', 'description' => 'Guest OS username'],
-				'guest_password' => ['type' => 'string', 'description' => 'Guest OS password'],
-				'guest_path' => ['type' => 'string', 'description' => 'Path inside the guest to download'],
-				'local_path' => ['type' => 'string', 'description' => 'Write the file to this path on the MCP server instead of returning it'],
-				'max_bytes' => ['type' => 'integer', 'description' => 'Cap on returned content bytes (default 262144; ignored with local_path)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'guest_username' => ['type' => 'string'],
+				'guest_password' => ['type' => 'string'],
+				'guest_path' => ['type' => 'string'],
+				'local_path' => ['type' => 'string', 'description' => 'Save on the MCP server host instead of returning'],
+				'max_bytes' => ['type' => 'integer', 'description' => 'Returned-content cap (default 262144)'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'guest_path'],
 		]
@@ -338,19 +338,19 @@ class GuestTools
 
 	#[McpTool(
 		name: 'guest_list_files',
-		description: 'List files in a guest directory via VMware Tools. Directories report type=directory; large listings page via index/new_index.',
+		description: 'List files in a guest directory via VMware Tools. Large listings page via index/new_index.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'guest_username' => ['type' => 'string', 'description' => 'Guest OS username'],
-				'guest_password' => ['type' => 'string', 'description' => 'Guest OS password'],
-				'path' => ['type' => 'string', 'description' => 'Directory path inside the guest'],
-				'match_pattern' => ['type' => 'string', 'description' => 'Filter (e.g. *.log)'],
-				'index' => ['type' => 'integer', 'description' => 'Resume index from a previous call\'s new_index'],
-				'max_results' => ['type' => 'integer', 'description' => 'Maximum entries to return'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'guest_username' => ['type' => 'string'],
+				'guest_password' => ['type' => 'string'],
+				'path' => ['type' => 'string'],
+				'match_pattern' => ['type' => 'string', 'description' => 'e.g. *.log'],
+				'index' => ['type' => 'integer', 'description' => 'new_index from the previous call'],
+				'max_results' => ['type' => 'integer'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'path'],
 		]

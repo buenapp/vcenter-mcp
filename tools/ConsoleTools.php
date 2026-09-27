@@ -33,13 +33,13 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'vm_screenshot',
-		description: 'Capture the VM console as a PNG image. method="webmks" opens an RFB console on the ESXi host (must be reachable); "soap" uses CreateScreenshot_Task through vCenter; "auto" tries WebMKS and falls back to SOAP.',
+		description: 'Capture the VM console as PNG. webmks needs the ESXi host reachable; soap goes through vCenter; auto (default) tries webmks then soap.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks'], 'description' => 'Console transport (default auto)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks']],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -85,17 +85,17 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'vm_send_keys',
-		description: 'Type text and/or press keys on the VM console (US layout). "text" is typed literally (\n = Enter, \t = Tab); "keys" is a list of names (enter tab esc space backspace delete up down left right home end pageup pagedown insert f1..f12) or combos (ctrl-c, ctrl-alt-del, alt-f2, shift-tab). Order: text, then keys, then Enter when enter=true. Requires the VM to be powered on. method="auto" tries WebMKS then SOAP (USB HID).',
+		description: 'Type text and/or press keys on the console of a powered-on VM (US layout). Sent in order: text, keys, then Enter if enter=true. method auto (default) tries webmks then soap (USB HID).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'text' => ['type' => 'string', 'description' => 'Literal text to type'],
-				'keys' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Key names/combos to press'],
-				'enter' => ['type' => 'boolean', 'description' => 'Append Enter after text/keys'],
-				'delay_ms' => ['type' => 'integer', 'description' => 'Delay between key strokes/chunks (default 20)'],
-				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks'], 'description' => 'Console transport'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'text' => ['type' => 'string', 'description' => 'Typed literally; \n = Enter, \t = Tab'],
+				'keys' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Names (enter tab esc space backspace delete up down left right home end pageup pagedown insert f1..f12) or combos (ctrl-c, ctrl-alt-del, alt-f2, shift-tab)'],
+				'enter' => ['type' => 'boolean', 'description' => 'Press Enter last'],
+				'delay_ms' => ['type' => 'integer', 'description' => 'Between strokes/chunks (default 20)'],
+				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks']],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -158,13 +158,13 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'vm_console_info',
-		description: 'Open a WebMKS console session to the VM and report diagnostics: ESXi host/port from the ticket, negotiated WebSocket subprotocol, TLS trust basis (DANE TLSA or ticket thumbprint) and console framebuffer size. Closes the session afterwards.',
+		description: 'Diagnose WebMKS console access: reports ESXi host/port, WebSocket subprotocol, TLS trust basis (DANE TLSA or ticket thumbprint) and framebuffer size.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -182,13 +182,13 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'get_vm_question',
-		description: 'Read a VM\'s blocking question (runtime.question), if any. Returns the question id, text and answer choices.',
+		description: 'Get the VM\'s pending blocking question, if any: id, text and answer choices.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -222,13 +222,13 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'answer_vm_question',
-		description: 'Answer a VM\'s blocking question. "choice" may be a choiceInfo key or its label (case-insensitive); get_vm_question lists them.',
+		description: 'Answer the VM\'s blocking question.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'choice' => ['type' => 'string', 'description' => 'Answer choice key or label'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'choice' => ['type' => 'string', 'description' => 'Choice key or label (case-insensitive) from get_vm_question'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'choice'],
 		]

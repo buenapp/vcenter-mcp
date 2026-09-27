@@ -39,13 +39,13 @@ class VideoTools
 
 	#[McpTool(
 		name: 'get_video',
-		description: 'Get a VM\'s video card settings (auto-detect, video RAM, displays, 3D support). Read via vim25 SOAP; the REST API does not model the video card.',
+		description: 'Get a VM\'s video card settings (auto-detect, video RAM, displays, 3D support).',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -59,17 +59,17 @@ class VideoTools
 
 	#[McpTool(
 		name: 'set_video',
-		description: 'Change a VM\'s video card settings via ReconfigVM_Task (device edit, vim25 SOAP). The VM must be powered off. use_auto_detect=true makes vCenter ignore video_ram_size_kb and num_displays, so those cannot be combined; returns the resulting settings.',
+		description: 'Change a VM\'s video card settings; VM must be powered off. Returns the resulting settings.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'use_auto_detect' => ['type' => 'boolean', 'description' => 'VRAM/display sizing follows the host (mutually exclusive with video_ram_size_kb and num_displays)'],
-				'video_ram_size_kb' => ['type' => 'integer', 'description' => 'Framebuffer size in KiB (requires use_auto_detect=false)'],
-				'num_displays' => ['type' => 'integer', 'description' => 'Number of virtual monitors (requires use_auto_detect=false)'],
-				'enable_3d_support' => ['type' => 'boolean', 'description' => 'Enable 3D acceleration'],
-				'graphics_memory_size_kb' => ['type' => 'integer', 'description' => 'Graphics memory in KiB when 3D support is enabled'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'use_auto_detect' => ['type' => 'boolean', 'description' => 'Size VRAM/displays from the host; cannot combine with video_ram_size_kb or num_displays'],
+				'video_ram_size_kb' => ['type' => 'integer', 'description' => 'KiB; needs use_auto_detect=false'],
+				'num_displays' => ['type' => 'integer', 'description' => 'Needs use_auto_detect=false'],
+				'enable_3d_support' => ['type' => 'boolean'],
+				'graphics_memory_size_kb' => ['type' => 'integer', 'description' => 'KiB, with 3D support'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]

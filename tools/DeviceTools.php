@@ -41,7 +41,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -55,14 +55,14 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'attach_iso',
-		description: 'Attach an ISO to a VM CD-ROM. Patches the given/existing CD-ROM or creates a new SATA CD-ROM; connects it when the VM is powered on. ISO form: "[Datastore] path/file.iso".',
+		description: 'Attach an ISO to a VM CD-ROM (connected immediately when powered on).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'iso' => ['type' => 'string', 'description' => 'ISO datastore path'],
-				'cdrom' => ['type' => 'string', 'description' => 'Existing CD-ROM device id (e.g. "16000"); a new SATA CD-ROM is created when omitted'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'iso' => ['type' => 'string', 'description' => '"[Datastore] path/file.iso"'],
+				'cdrom' => ['type' => 'string', 'description' => 'Existing CD-ROM device id (e.g. "16000"); omit to create a new SATA CD-ROM'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'iso'],
 		]
@@ -116,13 +116,13 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'detach_iso',
-		description: 'Detach an ISO: disconnect the CD-ROM and switch its backing to CLIENT_DEVICE.',
+		description: 'Detach an ISO: disconnect the CD-ROM and set its backing to CLIENT_DEVICE.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'cdrom' => ['type' => 'string', 'description' => 'CD-ROM device id (defaults to the only/first CD-ROM)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'cdrom' => ['type' => 'string', 'description' => 'Device id (default: first CD-ROM)'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -235,13 +235,13 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'list_disks',
-		description: 'List a VM\'s disks with their controller binding (key, type, unit number), disk mode (persistent / independent_persistent / independent_nonpersistent) and provisioning (thin/thick). Read via vim25 SOAP; the REST API reports none of these.',
+		description: 'List a VM\'s disks with controller binding (key, type, unit), disk mode and provisioning (thin/thick).',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -255,13 +255,13 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'list_controllers',
-		description: 'List a VM\'s SCSI controllers with key, bus number and type (buslogic / lsilogic / lsilogic-sas / paravirtual). Read via vim25 SOAP; the REST API does not model controller types.',
+		description: 'List a VM\'s SCSI controllers with key, bus number and type.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -275,16 +275,16 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'add_disk',
-		description: 'Add a new SCSI disk to a VM. Without further options it attaches to an existing controller via REST. With controller_type (buslogic / lsilogic / lsilogic-sas / paravirtual), disk_mode (persistent / independent_persistent / independent_nonpersistent) and/or thin, the disk (and the controller, when none of that type exists) is created in one ReconfigVM_Task over vim25 — creating a controller requires the VM powered off.',
+		description: 'Add a new SCSI disk to a VM, on an existing controller by default. If controller_type names a type the VM lacks, that controller is created too, which requires the VM powered off.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'size_gib' => ['type' => 'integer', 'description' => 'Disk size in GiB'],
-				'controller_type' => ['type' => 'string', 'description' => 'Controller type to attach to (created when absent): buslogic, lsilogic, lsilogic-sas, paravirtual'],
+				'size_gib' => ['type' => 'integer'],
+				'controller_type' => ['type' => 'string', 'description' => 'buslogic, lsilogic, lsilogic-sas or paravirtual'],
 				'disk_mode' => ['type' => 'string', 'description' => 'persistent (default), independent_persistent or independent_nonpersistent'],
-				'thin' => ['type' => 'boolean', 'description' => 'Thin-provision the new VMDK'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'thin' => ['type' => 'boolean', 'description' => 'Thin-provision'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'size_gib'],
 		]
@@ -415,14 +415,14 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'set_disk',
-		description: 'Change an existing disk\'s mode (persistent / independent_persistent / independent_nonpersistent) via ReconfigVM_Task (vim25). The VM must be powered off. Independent modes exclude the disk from snapshots. Provisioning cannot be changed this way — vCenter silently ignores thinProvisioned on backing edits; thin/thick is chosen when the VMDK is created.',
+		description: 'Change an existing disk\'s mode; VM must be powered off. Independent modes exclude the disk from snapshots. Thin/thick cannot be changed after creation.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'disk' => ['type' => 'string', 'description' => 'Disk device key from list_disks (e.g. "2000")'],
+				'disk' => ['type' => 'string', 'description' => 'Device key from list_disks (e.g. "2000")'],
 				'disk_mode' => ['type' => 'string', 'description' => 'persistent, independent_persistent or independent_nonpersistent'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'disk', 'disk_mode'],
 		]
@@ -529,7 +529,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
@@ -543,14 +543,14 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'add_nic',
-		description: 'Add a NIC to a VM on the given network (name or id).',
+		description: 'Add a NIC to a VM.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'network' => ['type' => 'string', 'description' => 'Network name or id'],
+				'network' => ['type' => 'string', 'description' => 'Name or id'],
 				'type' => ['type' => 'string', 'description' => 'Adapter type (default VMXNET3)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm', 'network'],
 		]
@@ -578,9 +578,9 @@ class DeviceTools
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'firmware' => ['type' => 'string', 'description' => 'BIOS or EFI'],
-				'order' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Boot device order: CDROM, DISK, ETHERNET, FLOPPY'],
+				'order' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'CDROM, DISK, ETHERNET, FLOPPY'],
 				'enter_setup_mode' => ['type' => 'boolean', 'description' => 'Enter firmware setup on next boot'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string'],
 			],
 			'required' => ['vm'],
 		]
