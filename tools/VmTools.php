@@ -32,7 +32,7 @@ class VmTools
 				'hosts' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Host MoRef ids'],
 				'power_states' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'POWERED_ON, POWERED_OFF, SUSPENDED'],
 				'folders' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Folder MoRef ids'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -54,7 +54,7 @@ class VmTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -85,7 +85,7 @@ class VmTools
 				'iso' => ['type' => 'string', 'description' => 'e.g. "[CDImages] FreeBSD OS/x.iso"'],
 				'folder' => ['type' => 'string', 'description' => 'Name or id'],
 				'resource_pool' => ['type' => 'string', 'description' => 'Name or id'],
-				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when other names are ambiguous across datacenters'],
 				'guest_os' => ['type' => 'string', 'description' => 'Default FREEBSD_14_64 (FREEBSD_64 is the legacy pre-11 profile)'],
 				'cpu' => ['type' => 'integer', 'description' => 'Default 2'],
 				'memory_mib' => ['type' => 'integer', 'description' => 'Default 2048'],
@@ -96,7 +96,7 @@ class VmTools
 				'controllers' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Adapter per bus in order: BUSLOGIC, LSILOGIC, LSILOGICSAS, PVSCSI (e.g. ["LSILOGICSAS","PVSCSI"])'],
 				'disk_mode' => ['type' => 'string', 'description' => 'Boot disk: persistent (default), independent_persistent or independent_nonpersistent'],
 				'version' => ['type' => 'string', 'description' => 'Hardware version, e.g. VMX_21 (default: vCenter default)'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['name'],
 		]
@@ -294,7 +294,7 @@ class VmTools
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'force' => ['type' => 'boolean'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -329,7 +329,7 @@ class VmTools
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'cpu' => ['type' => 'integer'],
 				'memory_mib' => ['type' => 'integer'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]

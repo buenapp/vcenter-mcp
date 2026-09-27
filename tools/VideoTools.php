@@ -45,7 +45,7 @@ class VideoTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -69,7 +69,7 @@ class VideoTools
 				'num_displays' => ['type' => 'integer', 'description' => 'Needs use_auto_detect=false'],
 				'enable_3d_support' => ['type' => 'boolean'],
 				'graphics_memory_size_kb' => ['type' => 'integer', 'description' => 'KiB, with 3D support'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]

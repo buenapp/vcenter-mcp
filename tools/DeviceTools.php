@@ -41,7 +41,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -62,7 +62,7 @@ class DeviceTools
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'iso' => ['type' => 'string', 'description' => '"[Datastore] path/file.iso"'],
 				'cdrom' => ['type' => 'string', 'description' => 'Existing CD-ROM device id (e.g. "16000"); omit to create a new SATA CD-ROM'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'iso'],
 		]
@@ -116,13 +116,13 @@ class DeviceTools
 
 	#[McpTool(
 		name: 'detach_iso',
-		description: 'Detach an ISO: disconnect the CD-ROM and set its backing to CLIENT_DEVICE.',
+		description: 'Detach an ISO: disconnect the CD-ROM and set its backing to CLIENT_DEVICE. After an OS install, reboot out of the installer first; detaching while it runs raises a "locked the CD-ROM door" VM question (see get_vm_question).',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'cdrom' => ['type' => 'string', 'description' => 'Device id (default: first CD-ROM)'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -241,7 +241,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -261,7 +261,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -284,7 +284,7 @@ class DeviceTools
 				'controller_type' => ['type' => 'string', 'description' => 'buslogic, lsilogic, lsilogic-sas or paravirtual'],
 				'disk_mode' => ['type' => 'string', 'description' => 'persistent (default), independent_persistent or independent_nonpersistent'],
 				'thin' => ['type' => 'boolean', 'description' => 'Thin-provision'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'size_gib'],
 		]
@@ -422,7 +422,7 @@ class DeviceTools
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'disk' => ['type' => 'string', 'description' => 'Device key from list_disks (e.g. "2000")'],
 				'disk_mode' => ['type' => 'string', 'description' => 'persistent, independent_persistent or independent_nonpersistent'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'disk', 'disk_mode'],
 		]
@@ -529,7 +529,7 @@ class DeviceTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -550,7 +550,7 @@ class DeviceTools
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'network' => ['type' => 'string', 'description' => 'Name or id'],
 				'type' => ['type' => 'string', 'description' => 'Adapter type (default VMXNET3)'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'network'],
 		]
@@ -580,7 +580,7 @@ class DeviceTools
 				'firmware' => ['type' => 'string', 'description' => 'BIOS or EFI'],
 				'order' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'CDROM, DISK, ETHERNET, FLOPPY'],
 				'enter_setup_mode' => ['type' => 'boolean', 'description' => 'Enter firmware setup on next boot'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]

@@ -39,7 +39,7 @@ class ConsoleTools
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks']],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -85,7 +85,7 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'vm_send_keys',
-		description: 'Type text and/or press keys on the console of a powered-on VM (US layout). Sent in order: text, keys, then Enter if enter=true. method auto (default) tries webmks then soap (USB HID).',
+		description: 'Type text and/or press keys on the console of a powered-on VM (US layout). Sent in order: text, keys, then Enter if enter=true. method auto (default) tries webmks then soap (USB HID); webmks does not fall back.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
@@ -95,7 +95,7 @@ class ConsoleTools
 				'enter' => ['type' => 'boolean', 'description' => 'Press Enter last'],
 				'delay_ms' => ['type' => 'integer', 'description' => 'Between strokes/chunks (default 20)'],
 				'method' => ['type' => 'string', 'enum' => ['auto', 'soap', 'webmks']],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -164,7 +164,7 @@ class ConsoleTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -182,13 +182,13 @@ class ConsoleTools
 
 	#[McpTool(
 		name: 'get_vm_question',
-		description: 'Get the VM\'s pending blocking question, if any: id, text and answer choices.',
+		description: 'Get the VM\'s pending blocking question, if any: id, text and answer choices. A pending question stalls the VM until answered with answer_vm_question.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -228,7 +228,7 @@ class ConsoleTools
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'choice' => ['type' => 'string', 'description' => 'Choice key or label (case-insensitive) from get_vm_question'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'choice'],
 		]

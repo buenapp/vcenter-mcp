@@ -12,9 +12,12 @@
   are registered yet; capabilities stay absent until they are.
   `VendoredLibraryLayoutTest` is green again.
 - Tool and parameter descriptions compacted to cut `tools/list` size
-  (7,135 -> 5,654 Qwen tokens): restating parameter descriptions
-  dropped (e.g. `instance`), implementation notes removed from tool
-  descriptions. Schemas, names and behavior unchanged.
+  (7,135 -> 6,587 Qwen tokens): restating parameter descriptions
+  dropped, implementation notes removed from tool descriptions. Each
+  tool definition is self-contained: `instance` documents its default,
+  and guidance formerly only in the server instructions (ambiguous
+  names, detach_iso after installs) lives on the tools. Schemas, names
+  and behavior unchanged.
 
 ## [0.3.0] - 2026-09-23
 

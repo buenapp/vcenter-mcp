@@ -67,7 +67,7 @@ class GuestTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -105,7 +105,7 @@ class GuestTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -167,7 +167,7 @@ class GuestTools
 				'capture_output' => ['type' => 'boolean', 'description' => 'Return stdout+stderr (default true; POSIX guests only)'],
 				'timeout' => ['type' => 'integer', 'description' => 'Seconds (default 120)'],
 				'interactive_session' => ['type' => 'boolean', 'description' => 'Run in the interactive (Windows desktop) session'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password'],
 		]
@@ -223,7 +223,7 @@ class GuestTools
 				'guest_username' => ['type' => 'string'],
 				'guest_password' => ['type' => 'string'],
 				'pids' => ['type' => 'array', 'items' => ['type' => 'integer'], 'description' => 'Default: all'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password'],
 		]
@@ -250,7 +250,7 @@ class GuestTools
 				'local_path' => ['type' => 'string', 'description' => 'Source file on the MCP server host'],
 				'overwrite' => ['type' => 'boolean', 'description' => 'Default true'],
 				'permissions' => ['type' => 'integer', 'description' => 'POSIX mode as decimal (420 = 0644, 384 = 0600)'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'guest_path'],
 		]
@@ -301,7 +301,7 @@ class GuestTools
 				'guest_path' => ['type' => 'string'],
 				'local_path' => ['type' => 'string', 'description' => 'Save on the MCP server host instead of returning'],
 				'max_bytes' => ['type' => 'integer', 'description' => 'Returned-content cap (default 262144)'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'guest_path'],
 		]
@@ -350,7 +350,7 @@ class GuestTools
 				'match_pattern' => ['type' => 'string', 'description' => 'e.g. *.log'],
 				'index' => ['type' => 'integer', 'description' => 'new_index from the previous call'],
 				'max_results' => ['type' => 'integer'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'guest_username', 'guest_password', 'path'],
 		]

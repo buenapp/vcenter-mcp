@@ -32,7 +32,7 @@ class InventoryTools
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -49,7 +49,7 @@ class InventoryTools
 			'type' => 'object',
 			'properties' => [
 				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -67,7 +67,7 @@ class InventoryTools
 			'properties' => [
 				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
 				'cluster' => ['type' => 'string', 'description' => 'Name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -86,7 +86,7 @@ class InventoryTools
 				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
 				'host' => ['type' => 'string', 'description' => 'Only datastores visible to this host (name or id)'],
 				'type' => ['type' => 'string', 'description' => 'VMFS, NFS, VSAN, ...'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -104,7 +104,7 @@ class InventoryTools
 			'properties' => [
 				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
 				'type' => ['type' => 'string', 'description' => 'STANDARD_PORTGROUP, DISTRIBUTED_PORTGROUP or OPAQUE_NETWORK'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -122,7 +122,7 @@ class InventoryTools
 			'properties' => [
 				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
 				'type' => ['type' => 'string', 'description' => 'VIRTUAL_MACHINE (default), HOST, DATASTORE or NETWORK'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -140,7 +140,7 @@ class InventoryTools
 			'properties' => [
 				'cluster' => ['type' => 'string', 'description' => 'Name or id'],
 				'host' => ['type' => 'string', 'description' => 'Name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -159,8 +159,8 @@ class InventoryTools
 				'datastore' => ['type' => 'string', 'description' => 'Name or id'],
 				'path' => ['type' => 'string', 'description' => 'Directory (default: root)'],
 				'pattern' => ['type' => 'string', 'description' => 'Default "*"'],
-				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
-				'instance' => ['type' => 'string'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when the datastore name is ambiguous'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['datastore'],
 		]
@@ -179,8 +179,8 @@ class InventoryTools
 			'properties' => [
 				'datastore' => ['type' => 'string', 'description' => 'Name or id'],
 				'path' => ['type' => 'string', 'description' => 'Relative to the datastore root'],
-				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
-				'instance' => ['type' => 'string'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when the datastore name is ambiguous'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['datastore', 'path'],
 		]

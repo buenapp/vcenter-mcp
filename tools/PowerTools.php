@@ -38,7 +38,7 @@ class PowerTools
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'action' => ['type' => 'string', 'description' => 'on|off|reset|suspend|shutdown_guest|reboot_guest'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'action'],
 		]
@@ -68,7 +68,7 @@ class PowerTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
