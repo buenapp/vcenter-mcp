@@ -1,6 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-09-27
+
+### Added
+
+- `deploy_vm` MCP prompt: renders the estate FreeBSD service-VM
+  playbook (LSI boot volume, PVSCSI independent_persistent ZFS data
+  volumes, vRAM auto-detect, EFI, scripted bsdinstall with dist-set
+  filtering, provisioning script) from the caller's sizing, with
+  argument completion for `datacenter`, `network` and `iso`. The server
+  now advertises the `prompts` and `completions` capabilities.
 
 ### Changed
 
@@ -8,8 +17,6 @@
   prompts (`prompts/list`, `prompts/get`), `completion/complete`, MRTR
   elicitation for `tools/call`, and `subscriptions/listen` stream
   support (Extras d16a015/599fd03/0220a42, Tortilla 4d48ada/6ebb814).
-  No behavior change — no prompt, completion or subscription handlers
-  are registered yet; capabilities stay absent until they are.
   `VendoredLibraryLayoutTest` is green again.
 - Tool and parameter descriptions compacted to cut `tools/list` size
   (7,135 -> 6,587 Qwen tokens): restating parameter descriptions
