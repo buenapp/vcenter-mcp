@@ -23,16 +23,16 @@ class VmTools
 
 	#[McpTool(
 		name: 'list_vms',
-		description: 'List virtual machines, optionally filtered by names, hosts, power states or folders.',
+		description: 'List VMs, optionally filtered.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'names' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Filter by VM names'],
-				'hosts' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Filter by host MoRef ids'],
+				'names' => ['type' => 'array', 'items' => ['type' => 'string']],
+				'hosts' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Host MoRef ids'],
 				'power_states' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'POWERED_ON, POWERED_OFF, SUSPENDED'],
-				'folders' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Filter by folder MoRef ids'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'folders' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Folder MoRef ids'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -48,13 +48,13 @@ class VmTools
 
 	#[McpTool(
 		name: 'get_vm',
-		description: 'Full VM summary: hardware, disks, NICs (with MACs), CD-ROMs, boot config and power state.',
+		description: 'Get a full VM summary: hardware, disks, NICs (with MACs), CD-ROMs, boot config, power state.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -73,30 +73,30 @@ class VmTools
 
 	#[McpTool(
 		name: 'create_vm',
-		description: 'Create a VM. Host exclusion is enforced; when host/datastore are omitted, a non-excluded host and the host-visible datastore with most free space are chosen automatically. With iso, boot order is CDROM then DISK. Accepts a hardware version (e.g. VMX_21) via version.',
+		description: 'Create a VM. Omitted host/datastore are auto-picked (a non-excluded host, its datastore with most free space); excluded hosts are refused. With iso, boots CDROM then DISK.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'name' => ['type' => 'string', 'description' => 'VM name'],
-				'host' => ['type' => 'string', 'description' => 'Target host name or id (must not be excluded; auto-picked when omitted)'],
-				'cluster' => ['type' => 'string', 'description' => 'Cluster name or id (scopes auto host pick)'],
-				'datastore' => ['type' => 'string', 'description' => 'Datastore name or id (auto-picked when omitted)'],
-				'network' => ['type' => 'string', 'description' => 'Network name or id for the NIC (default from instance config)'],
-				'iso' => ['type' => 'string', 'description' => 'CD-ROM ISO path, e.g. "[CDImages] FreeBSD OS/x.iso"'],
-				'folder' => ['type' => 'string', 'description' => 'VM folder name or id'],
-				'resource_pool' => ['type' => 'string', 'description' => 'Resource pool name or id'],
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'guest_os' => ['type' => 'string', 'description' => 'Guest OS id (default FREEBSD_14_64; FREEBSD_64 maps to the legacy pre-11 profile)'],
-				'cpu' => ['type' => 'integer', 'description' => 'vCPU count (default 2)'],
-				'memory_mib' => ['type' => 'integer', 'description' => 'Memory MiB (default 2048)'],
-				'disk_gib' => ['type' => 'integer', 'description' => 'Disk size GiB (default 20)'],
-				'firmware' => ['type' => 'string', 'description' => 'EFI or BIOS (default EFI)'],
-				'nic_type' => ['type' => 'string', 'description' => 'NIC adapter type (default VMXNET3)'],
-				'scsi_type' => ['type' => 'string', 'description' => 'SCSI adapter type for bus 0 (default PVSCSI); ignored when controllers is given'],
-				'controllers' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'SCSI adapter types, one per bus in order (BUSLOGIC, LSILOGIC, LSILOGICSAS, PVSCSI) — e.g. ["LSILOGICSAS","PVSCSI"] for an LSI SAS boot adapter plus a paravirtual data adapter'],
-				'disk_mode' => ['type' => 'string', 'description' => 'Boot disk mode: persistent (default), independent_persistent or independent_nonpersistent (applied via vim25 after create; provisioning follows the datastore default and cannot be changed by reconfig)'],
-				'version' => ['type' => 'string', 'description' => 'VM hardware version (e.g. VMX_21); default: vCenter default'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'name' => ['type' => 'string'],
+				'host' => ['type' => 'string', 'description' => 'Name or id'],
+				'cluster' => ['type' => 'string', 'description' => 'Name or id; scopes the host auto-pick'],
+				'datastore' => ['type' => 'string', 'description' => 'Name or id'],
+				'network' => ['type' => 'string', 'description' => 'Name or id (default from instance config)'],
+				'iso' => ['type' => 'string', 'description' => 'e.g. "[CDImages] FreeBSD OS/x.iso"'],
+				'folder' => ['type' => 'string', 'description' => 'Name or id'],
+				'resource_pool' => ['type' => 'string', 'description' => 'Name or id'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when other names are ambiguous across datacenters'],
+				'guest_os' => ['type' => 'string', 'description' => 'Default FREEBSD_14_64 (FREEBSD_64 is the legacy pre-11 profile)'],
+				'cpu' => ['type' => 'integer', 'description' => 'Default 2'],
+				'memory_mib' => ['type' => 'integer', 'description' => 'Default 2048'],
+				'disk_gib' => ['type' => 'integer', 'description' => 'Default 20'],
+				'firmware' => ['type' => 'string', 'description' => 'EFI (default) or BIOS'],
+				'nic_type' => ['type' => 'string', 'description' => 'Default VMXNET3'],
+				'scsi_type' => ['type' => 'string', 'description' => 'Bus 0 adapter (default PVSCSI); ignored with controllers'],
+				'controllers' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Adapter per bus in order: BUSLOGIC, LSILOGIC, LSILOGICSAS, PVSCSI (e.g. ["LSILOGICSAS","PVSCSI"])'],
+				'disk_mode' => ['type' => 'string', 'description' => 'Boot disk: persistent (default), independent_persistent or independent_nonpersistent'],
+				'version' => ['type' => 'string', 'description' => 'Hardware version, e.g. VMX_21 (default: vCenter default)'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['name'],
 		]
@@ -293,8 +293,8 @@ class VmTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'force' => ['type' => 'boolean', 'description' => 'Power off first when the VM is on'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'force' => ['type' => 'boolean'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]
@@ -327,9 +327,9 @@ class VmTools
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'cpu' => ['type' => 'integer', 'description' => 'New vCPU count'],
-				'memory_mib' => ['type' => 'integer', 'description' => 'New memory size MiB'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'cpu' => ['type' => 'integer'],
+				'memory_mib' => ['type' => 'integer'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]

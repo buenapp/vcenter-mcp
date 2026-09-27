@@ -39,12 +39,12 @@ class InstanceTools
 
 	#[McpTool(
 		name: 'get_vcenter_info',
-		description: 'vCenter server info: fullName, version, build, apiVersion plus REST/SOAP session state.',
+		description: 'Get vCenter version/build/apiVersion and REST/SOAP session state.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name (default instance when omitted)'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]

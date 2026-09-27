@@ -32,13 +32,13 @@ class PowerTools
 
 	#[McpTool(
 		name: 'vm_power',
-		description: 'Power action on a VM: on, off, reset, suspend (hard) or shutdown_guest, reboot_guest (requires VMware Tools).',
+		description: 'Change VM power state. on/off/reset/suspend are hard; shutdown_guest/reboot_guest need VMware Tools.',
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
 				'action' => ['type' => 'string', 'description' => 'on|off|reset|suspend|shutdown_guest|reboot_guest'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm', 'action'],
 		]
@@ -62,13 +62,13 @@ class PowerTools
 
 	#[McpTool(
 		name: 'get_vm_power',
-		description: 'Current power state of a VM.',
+		description: 'Get a VM\'s power state.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
 				'vm' => ['type' => 'string', 'description' => 'VM name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['vm'],
 		]

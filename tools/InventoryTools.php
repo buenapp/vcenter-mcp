@@ -27,12 +27,12 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'list_datacenters',
-		description: 'List vCenter datacenters.',
+		description: 'List datacenters.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name (default instance when omitted)'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -43,13 +43,13 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'list_clusters',
-		description: 'List clusters, optionally scoped to a datacenter (name or id).',
+		description: 'List clusters.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -65,9 +65,9 @@ class InventoryTools
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'cluster' => ['type' => 'string', 'description' => 'Cluster name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'cluster' => ['type' => 'string', 'description' => 'Name or id'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -83,10 +83,10 @@ class InventoryTools
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'host' => ['type' => 'string', 'description' => 'Restrict to datastores visible to this host (name or id)'],
-				'type' => ['type' => 'string', 'description' => 'Datastore type filter (VMFS, NFS, VSAN, ...)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'host' => ['type' => 'string', 'description' => 'Only datastores visible to this host (name or id)'],
+				'type' => ['type' => 'string', 'description' => 'VMFS, NFS, VSAN, ...'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -102,9 +102,9 @@ class InventoryTools
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'type' => ['type' => 'string', 'description' => 'Network type filter (STANDARD_PORTGROUP, DISTRIBUTED_PORTGROUP, OPAQUE_NETWORK)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'type' => ['type' => 'string', 'description' => 'STANDARD_PORTGROUP, DISTRIBUTED_PORTGROUP or OPAQUE_NETWORK'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -115,14 +115,14 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'list_folders',
-		description: 'List inventory folders (default type VIRTUAL_MACHINE).',
+		description: 'List inventory folders.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'type' => ['type' => 'string', 'description' => 'Folder type (VIRTUAL_MACHINE, HOST, DATASTORE, NETWORK)'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id'],
+				'type' => ['type' => 'string', 'description' => 'VIRTUAL_MACHINE (default), HOST, DATASTORE or NETWORK'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -133,14 +133,14 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'list_resource_pools',
-		description: 'List resource pools, optionally scoped to a cluster or host.',
+		description: 'List resource pools.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'cluster' => ['type' => 'string', 'description' => 'Cluster name or id'],
-				'host' => ['type' => 'string', 'description' => 'Host name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'cluster' => ['type' => 'string', 'description' => 'Name or id'],
+				'host' => ['type' => 'string', 'description' => 'Name or id'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 		]
 	)]
@@ -151,16 +151,16 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'browse_datastore',
-		description: 'List files on a datastore via the datastore browser (e.g. to find an ISO: path "FreeBSD OS", pattern "*.iso").',
+		description: 'List files on a datastore (e.g. find ISOs: path "FreeBSD OS", pattern "*.iso").',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datastore' => ['type' => 'string', 'description' => 'Datastore name or id'],
-				'path' => ['type' => 'string', 'description' => 'Directory under the datastore root (default: root)'],
-				'pattern' => ['type' => 'string', 'description' => 'File-name pattern (default "*")'],
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datastore' => ['type' => 'string', 'description' => 'Name or id'],
+				'path' => ['type' => 'string', 'description' => 'Directory (default: root)'],
+				'pattern' => ['type' => 'string', 'description' => 'Default "*"'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when the datastore name is ambiguous'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['datastore'],
 		]
@@ -172,15 +172,15 @@ class InventoryTools
 
 	#[McpTool(
 		name: 'read_datastore_file',
-		description: 'Read a file from a datastore (e.g. a .vmx for settings the REST API does not model). UTF-8 text is returned verbatim, binary payloads base64-encoded; capped at 8 MiB. Use browse_datastore to locate files first.',
+		description: 'Read a datastore file (e.g. a .vmx). Text is returned verbatim, binary as base64; max 8 MiB.',
 		readOnlyHint: true,
 		inputSchema: [
 			'type' => 'object',
 			'properties' => [
-				'datastore' => ['type' => 'string', 'description' => 'Datastore name or id'],
-				'path' => ['type' => 'string', 'description' => 'File path relative to the datastore root'],
-				'datacenter' => ['type' => 'string', 'description' => 'Datacenter name or id'],
-				'instance' => ['type' => 'string', 'description' => 'vCenter instance name'],
+				'datastore' => ['type' => 'string', 'description' => 'Name or id'],
+				'path' => ['type' => 'string', 'description' => 'Relative to the datastore root'],
+				'datacenter' => ['type' => 'string', 'description' => 'Name or id; set when the datastore name is ambiguous'],
+				'instance' => ['type' => 'string', 'description' => 'vCenter instance name; default instance if omitted (see list_vcenter_instances)'],
 			],
 			'required' => ['datastore', 'path'],
 		]
