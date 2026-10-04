@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Envelope xmlns="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1">
+  <References><File ovf:id="file1" ovf:href="app-disk1.vmdk"/></References>
+  <DiskSection>
+    <Info>Disks</Info>
+    <Disk ovf:diskId="vmdisk1" ovf:capacity="60" ovf:capacityAllocationUnits="byte * 2^30"/>
+  </DiskSection>
+  <NetworkSection>
+    <Info>Networks</Info>
+    <Network ovf:name="VM Network-ovf"><Description>The appliance network</Description></Network>
+  </NetworkSection>
+  <VirtualSystem ovf:id="Appliance-X">
+    <Info>A virtual appliance</Info>
+    <ProductSection>
+      <Info>Appliance properties</Info>
+      <Property ovf:key="hostname" ovf:type="string" ovf:userConfigurable="true" ovf:value="app-01">
+        <Label>Hostname</Label>
+      </Property>
+      <Property ovf:key="guestinfo.cis.appliance.ssh.enabled" ovf:type="boolean" ovf:value="False">
+        <Label>Enable SSH</Label>
+      </Property>
+    </ProductSection>
+    <EulaSection>
+      <Info>End User License Agreement</Info>
+      <License>Sample terms</License>
+    </EulaSection>
+  </VirtualSystem>
+</Envelope>

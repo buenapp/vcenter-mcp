@@ -35,29 +35,29 @@ class RestClient
 		$this->instance = $instance;
 	}
 
-	public function get(string $endpoint, array $query = []): mixed
+	public function get(string $endpoint, array $query = [], ?int $timeout = null): mixed
 	{
-		return $this->request('GET', $endpoint, null, $query);
+		return $this->request('GET', $endpoint, null, $query, true, $timeout);
 	}
 
-	public function post(string $endpoint, ?array $data = null, array $query = []): mixed
+	public function post(string $endpoint, ?array $data = null, array $query = [], ?int $timeout = null): mixed
 	{
-		return $this->request('POST', $endpoint, $data, $query);
+		return $this->request('POST', $endpoint, $data, $query, true, $timeout);
 	}
 
-	public function patch(string $endpoint, ?array $data = null): mixed
+	public function patch(string $endpoint, ?array $data = null, ?int $timeout = null): mixed
 	{
-		return $this->request('PATCH', $endpoint, $data);
+		return $this->request('PATCH', $endpoint, $data, [], true, $timeout);
 	}
 
-	public function put(string $endpoint, ?array $data = null): mixed
+	public function put(string $endpoint, ?array $data = null, ?int $timeout = null): mixed
 	{
-		return $this->request('PUT', $endpoint, $data);
+		return $this->request('PUT', $endpoint, $data, [], true, $timeout);
 	}
 
-	public function delete(string $endpoint): mixed
+	public function delete(string $endpoint, ?int $timeout = null): mixed
 	{
-		return $this->request('DELETE', $endpoint);
+		return $this->request('DELETE', $endpoint, null, [], true, $timeout);
 	}
 
 	/** Whether a session token has been acquired. */
@@ -108,7 +108,7 @@ class RestClient
 	 *               scalar results such as the session token)
 	 * @throws VCenterException
 	 */
-	private function request(string $method, string $endpoint, ?array $data = null, array $query = [], bool $retryOnAuth = true): mixed
+	private function request(string $method, string $endpoint, ?array $data = null, array $query = [], bool $retryOnAuth = true, ?int $timeout = null): mixed
 	{
 		if ($this->sessionToken === null) {
 			$this->login();
@@ -123,13 +123,13 @@ class RestClient
 		}
 		$body = $data !== null ? json_encode($data) : null;
 
-		[$code, $responseBody] = $this->send($method, $endpoint, $headers, $body, $query);
+		[$code, $responseBody] = $this->send($method, $endpoint, $headers, $body, $query, $timeout);
 
 		if ($code === 401 && $retryOnAuth) {
 			$this->sessionToken = null;
 			$this->login();
 			$headers[1] = 'vmware-api-session-id: ' . $this->sessionToken;
-			[$code, $responseBody] = $this->send($method, $endpoint, $headers, $body, $query);
+			[$code, $responseBody] = $this->send($method, $endpoint, $headers, $body, $query, $timeout);
 		}
 
 		$url = $this->instance->url() . '/api/' . ltrim($endpoint, '/');
@@ -159,12 +159,17 @@ class RestClient
 	 * @return array{0:int,1:string} HTTP code and raw body
 	 * @throws VCenterException On transport failure
 	 */
-	private function send(string $method, string $endpoint, array $headers, ?string $body, array $query = []): array
+	private function send(string $method, string $endpoint, array $headers, ?string $body, array $query = [], ?int $timeout = null): array
 	{
-		$path = 'api/' . ltrim($endpoint, '/');
+		// Endpoints starting with 'rest/' are the legacy vAPI REST flavor
+		// (only some content-library resources exist there on 8.0), the
+		// remainder lives under /api.
+		$path = str_starts_with($endpoint, 'rest/') ? $endpoint : 'api/' . ltrim($endpoint, '/');
 		$url = $this->instance->url() . '/' . $path;
 		if (!empty($query)) {
-			$url .= '?' . $this->buildQuery($query);
+			$sep = str_contains($path, '?') ? '&' : '?';
+			$url .= $sep . $this->buildQuery($query);
+			$path .= $sep . $this->buildQuery($query);
 		}
 
 		$fake = $this->instance->httpClient();
@@ -175,7 +180,7 @@ class RestClient
 		}
 
 		try {
-			$result = $this->instance->http()->call($path . (!empty($query) ? '?' . $this->buildQuery($query) : ''), $body, $method, $headers, null, 'raw');
+			$result = $this->instance->http()->call($path, $body, $method, $headers, $timeout, 'raw');
 		} catch (\Exception $e) {
 			throw new VCenterException("HTTP error for {$url}: " . $e->getMessage(), 0, 'Transport', $e);
 		}
