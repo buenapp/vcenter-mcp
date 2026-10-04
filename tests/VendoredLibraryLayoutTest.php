@@ -34,6 +34,7 @@ class VendoredLibraryLayoutTest extends TestCase
 			'libraries/Enchilada/Tortilla/ComalEventLoop.php',
 			'libraries/Enchilada/Comal/ReactorFactory.php',
 			'libraries/EnchiladaWebSocket/WebSocketClient.class.php',
+			'includes/mcp.inc.php',
 		];
 		foreach ($required as $path) {
 			$this->assertFileExists(self::ROOT . '/' . $path, $path);
@@ -89,8 +90,12 @@ class VendoredLibraryLayoutTest extends TestCase
 			"$framework/system/autoload.inc.php" => 'system/autoload.inc.php',
 			"$framework/system/bootstrap.inc.php" => 'system/bootstrap.inc.php',
 		];
-		foreach (glob("$extras/MCP/*.php") ?: [] as $src) {
+		foreach (glob("$extras/MCP/*.class.php") ?: [] as $src) {
 			$pairs[$src] = 'libraries/EnchiladaMCP/' . basename($src);
+		}
+		// mcp.inc.php is an include (no class); apps vendor it to includes/
+		if (is_file("$extras/MCP/mcp.inc.php")) {
+			$pairs["$extras/MCP/mcp.inc.php"] = 'includes/mcp.inc.php';
 		}
 		foreach (glob("$extras/Dns/*.php") ?: [] as $src) {
 			$pairs[$src] = 'libraries/Enchilada/Dns/' . basename($src);

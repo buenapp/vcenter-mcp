@@ -150,19 +150,11 @@ if (file_exists($instructionsFile)) {
 	$server->setInstructions(file_get_contents($instructionsFile));
 }
 
-// Register tools
-$toolDir = APPLICATION_ROOT . 'tools';
-if (is_dir($toolDir)) {
-	foreach (scandir($toolDir) as $entry) {
-		if (substr($entry, -4) !== '.php') continue;
-		$className = basename($entry, '.php');
-		require_once $toolDir . DIRECTORY_SEPARATOR . $entry;
-		if (class_exists($className, false)) {
-			$server->register(new $className($manager));
-			$logger->debug("Registered tools: {$className}");
-		}
-	}
-}
+// Register tools via the canonical EnchiladaMCP include (scan tools/,
+// instantiate each eponymous class against the instance manager)
+enchilada_mcp_register_tools($server,
+	fn(string $className) => $logger->debug("Registered tools: {$className}"),
+	$manager);
 
 $logger->info("MCP server started (stdio transport)");
 
