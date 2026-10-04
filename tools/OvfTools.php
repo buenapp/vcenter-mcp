@@ -111,6 +111,12 @@ class OvfTools
 		if (preg_match('#^https?://#i', $image) === 1) {
 			$sourceUri = $image;
 			$fileName = basename(parse_url($image, PHP_URL_PATH) ?: 'package.ova');
+			// size is mandatory (sizeless file specs import empty items),
+			// and vCenter pulls with its own TLS chain validation, so HEAD
+			// the URL first: Content-Length for the file spec, and the
+			// peer certificate as a TOFU thumbprint when none is passed.
+			[$imageSize, $peerThumbprint] = $this->urlInfo($inst, $image);
+			$thumbprint = $thumbprint ?? $peerThumbprint;
 		} else {
 			[$dsName, $dsPath] = $this->splitDatastorePath($image);
 			if (preg_match('/\.ova$/i', $dsPath) !== 1) {
@@ -119,6 +125,7 @@ class OvfTools
 					0, 'InvalidArgument'
 				);
 			}
+			$imageSize = $this->dsFileSize($inst, $dsName, $dsPath, $datacenter);
 			$sourceUri = $this->datastoreUri($inst, $dsName, $dsPath, $datacenter);
 			$fileName = basename($dsPath);
 		}
@@ -179,9 +186,10 @@ class OvfTools
 		$sessionId = null;
 		try {
 			$sessionId = $library->openUpdateSession($itemId);
-			$library->addPullFile($sessionId, $fileName, $sourceUri, $thumbprint);
-			$library->waitFilesReady($sessionId);
+			$library->addPullFile($sessionId, $fileName, $sourceUri, $thumbprint, $imageSize);
+			// PULL runs during and after complete; done == session DONE
 			$library->completeSession($sessionId);
+			$library->waitSessionDone($sessionId);
 			$sessionId = null;
 
 			// Network mappings (a name->id map in the deployment spec):
@@ -257,6 +265,7 @@ class OvfTools
 	 */
 	private function stageDatastoreFile(Instance $inst, string $image, ?string $datacenter): string
 	{
+		$this->bumpStagingMemory();
 		[$dsName, $path] = $this->splitDatastorePath($image);
 		$ds = $inst->inventory()->resolveDatastore($dsName, $datacenter);
 		$dc = $inst->properties()->datacenterOf(['type' => 'Datastore', 'id' => $ds['datastore']]);
@@ -275,6 +284,7 @@ class OvfTools
 	 */
 	private function stageUrl(Instance $inst, string $url, int $timeout = 3600): string
 	{
+		$this->bumpStagingMemory();
 		$tmp = $this->tempPathFor(basename((string) (parse_url($url, PHP_URL_PATH) ?: 'package.ova')));
 		$fake = $inst->httpClient();
 		if ($fake !== null) {
@@ -346,6 +356,121 @@ class OvfTools
 		return [$m[1], $m[2]];
 	}
 
+	/** Size of a datastore file via browse_datastore. */
+	private function dsFileSize(Instance $inst, string $dsName, string $path, ?string $datacenter): ?int
+	{
+		$base = basename($path);
+		$dir = trim(dirname($path), './');
+		foreach ($inst->inventory()->browseDatastore($dsName, $dir, $base, $datacenter) as $file) {
+			if (str_ends_with($file['path'], '/' . $base) && isset($file['size'])) {
+				return (int) $file['size'];
+			}
+		}
+		throw new VCenterException(
+			"No datastore file '{$base}' in [{$dsName}] " . ($dir === '' ? '/' : $dir),
+			0, 'NotFound'
+		);
+	}
+
+	/**
+	 * HEAD an http(s) URL: returns [size, sha1-thumbprint of the peer
+	 * certificate]. Follows redirects; size/thumbprint null when they
+	 * cannot be determined.
+	 *
+	 * @return array{0:?int,1:?string}
+	 */
+	private function urlInfo(Instance $inst, string $url, int $hops = 0): array
+	{
+		if ($hops > 5) {
+			return [null, null];
+		}
+
+		$fake = $inst->httpClient();
+		if ($fake !== null) {
+			$response = $fake('HEAD', $url, [], null);
+			$size = null;
+			foreach ((array) ($response['headers']['content-length'] ?? []) as $v) {
+				$size = (int) $v;
+			}
+			return [$size, null];
+		}
+
+		$parts = parse_url($url);
+		if ($parts === false || empty($parts['scheme']) || !isset($parts['host'], $parts['path'])) {
+			return [null, null];
+		}
+		$tls = $parts['scheme'] === 'https';
+		$port = $parts['port'] ?? ($tls ? 443 : 80);
+		$context = stream_context_create(['ssl' => [
+			'capture_peer_cert' => true,
+			'verify_peer' => false,
+			'verify_peer_name' => false,
+			'allow_self_signed' => true,
+		]]);
+		$fp = @stream_socket_client(($tls ? 'ssl://' : 'tcp://') . $parts['host'] . ':' . $port,
+			$errno, $errstr, 30, STREAM_CLIENT_CONNECT, $context);
+		if ($fp === false) {
+			return [null, null];
+		}
+
+		$thumbprint = null;
+		$params = stream_context_get_params($fp);
+		$cert = $params['options']['ssl']['peer_certificate'] ?? null;
+		if ($cert !== null) {
+			openssl_x509_export($cert, $pem);
+			$der = base64_decode(implode('', array_diff(
+				explode("\n", (string) $pem),
+				['', '-----BEGIN CERTIFICATE-----', '-----END CERTIFICATE-----'])));
+			foreach (str_split(sha1($der), 2) as $i => $byte) {
+				$thumbprint = ($thumbprint === null ? '' : $thumbprint . ':') . $byte;
+			}
+		}
+
+		$request = 'HEAD ' . $parts['path'] . (isset($parts['query']) ? '?' . $parts['query'] : '')
+			. " HTTP/1.1\r\nHost: " . $parts['host'] . "\r\nConnection: close\r\n\r\n";
+		fwrite($fp, $request);
+		$headers = '';
+		while (!feof($fp) && !str_contains($headers, "\r\n\r\n") && strlen($headers) < 16384) {
+			$headers .= fgets($fp, 4096);
+		}
+		fclose($fp);
+
+		if (preg_match('#^HTTP/\S+\s+(\d+)#mi', $headers, $m) !== 1) {
+			return [null, $thumbprint];
+		}
+		$status = (int) $m[1];
+		if ($status >= 300 && $status < 400 && preg_match('#^location:\s*(\S+)#mi', $headers, $lm) === 1) {
+			return $this->urlInfo($inst, $lm[1], $hops + 1);
+		}
+		$size = null;
+		if (preg_match('#^content-length:\s*(\d+)#mi', $headers, $cm) === 1) {
+			$size = (int) $cm[1];
+		}
+		return [$size, $thumbprint];
+	}
+
+	/**
+	 * The HTTP engine accumulates the body alongside the write callback,
+	 * so staging big packages needs headroom: raise memory_limit to 4 GiB
+	 * when it is lower.
+	 */
+	private function bumpStagingMemory(): void
+	{
+		$limit = ini_get('memory_limit');
+		if ($limit !== false && $limit !== '-1' && $this->bytes((string) $limit) < 4294967296) {
+			ini_set('memory_limit', '4096M');
+		}
+	}
+
+	/** Parse an ini shorthand size. */
+	private function bytes(string $s): int
+	{
+		$s = trim($s);
+		$unit = strtoupper(substr($s, -1));
+		$pos = stripos('KMGT', $unit);
+		return $pos === false ? (int) $s : (int) ((float) $s * pow(1024, $pos + 1));
+	}
+
 	/**
 	 * Temp path for a staged package, keeping an extension PharData
 	 * accepts (it refuses unknown ones). Tar packages become .tar.
@@ -378,13 +503,25 @@ class OvfTools
 	 */
 	private function ovfNetworks(\VCenter\ContentLibrary $library, string $itemId, array $target): array
 	{
-		try {
-			$info = $library->filterOvf($itemId, $target);
-		} catch (VCenterException $e) {
+		// The item's OVF metadata is processed asynchronously after the
+		// update session completes; retry briefly.
+		$info = null;
+		$cause = null;
+		for ($attempt = 0; $attempt < 12; $attempt++) {
+			try {
+				$info = $library->filterOvf($itemId, $target);
+				break;
+			} catch (VCenterException $e) {
+				$cause = $e;
+				usleep(5000000);
+			}
+		}
+		if ($info === null) {
 			throw new VCenterException(
-				'Cannot discover the OVF networks of the imported item; pass explicit network_mappings '
-					. '(OVF network name -> vCenter network) instead of network',
-				0, 'FilterError', $e
+				'Cannot discover the OVF networks of the imported item'
+					. ($cause !== null ? ': ' . $cause->getMessage() : '')
+					. '; pass explicit network_mappings (OVF network name -> vCenter network) instead of network',
+				0, 'FilterError', $cause
 			);
 		}
 		$names = [];

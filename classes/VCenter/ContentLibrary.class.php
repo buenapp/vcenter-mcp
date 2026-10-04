@@ -18,9 +18,6 @@ namespace VCenter;
 
 class ContentLibrary
 {
-	/** File states an update session reports while a transfer is open. */
-	private const FILE_PENDING_STATES = ['UNSET', 'WAITING_FOR_TRANSFER', 'TRANSFERRING', 'VALIDATING'];
-
 	private Instance $instance;
 
 	/** Poll interval in microseconds for transfer waits */
@@ -59,18 +56,54 @@ class ContentLibrary
 		return $created;
 	}
 
-	/** Create an empty OVF library item; returns the item id. */
+	/**
+	 * Create an empty OVF library item; returns the item id. The content
+	 * service on loaded vCenters can outlive the instance timeout while
+	 * still creating the item; on a transport timeout, adopt the item
+	 * when it exists by then (this name is unique per deploy).
+	 */
 	public function createItem(string $libraryId, string $name): string
 	{
-		$id = $this->instance->rest()->post('content/library/item', [
-			'library_id' => $libraryId,
-			'name' => $name,
-			'type' => 'ovf',
-		]);
+		try {
+			$id = $this->instance->rest()->post('content/library/item', [
+				'library_id' => $libraryId,
+				'name' => $name,
+				'type' => 'ovf',
+			], [], 600);
+		} catch (VCenterException $e) {
+			if ($e->getErrorType() !== 'Transport') {
+				throw $e;
+			}
+			$id = $this->adoptItem($libraryId, $name);
+			if ($id === null) {
+				throw $e;
+			}
+			return $id;
+		}
 		if (!is_string($id)) {
 			throw new VCenterException('Library item create returned no id', 0, 'LibraryError');
 		}
 		return $id;
+	}
+
+	/**
+	 * Adopt an item by name after a timed-out create. Polls a few
+	 * times; the service can take a minute to list a freshly
+	 * created item.
+	 */
+	private function adoptItem(string $libraryId, string $name): ?string
+	{
+		for ($attempt = 0; $attempt < 12; $attempt++) {
+			foreach ($this->instance->rest()->get('content/library/item',
+					['library_id' => $libraryId], 300) ?? [] as $itemId) {
+				$item = $this->instance->rest()->get('content/library/item/' . rawurlencode((string) $itemId), [], 300);
+				if (is_array($item) && ($item['name'] ?? null) === $name) {
+					return (string) ($item['id'] ?? $itemId);
+				}
+			}
+			usleep(5000000);
+		}
+		return null;
 	}
 
 	/** Best-effort item cleanup after a deploy. */
@@ -83,16 +116,48 @@ class ContentLibrary
 		}
 	}
 
-	/** Open an update session on a library item; returns the session id. */
+	/**
+	 * Open an update session on a library item; returns the session id.
+	 * vCenter allows one ACTIVE session per item and create can be slow
+	 * under load; a surviving ACTIVE session from a timed-out earlier
+	 * run is adopted.
+	 */
 	public function openUpdateSession(string $itemId): string
 	{
-		$id = $this->instance->rest()->post('content/library/item/update-session', [
-			'library_item_id' => $itemId,
-		]);
+		try {
+			$id = $this->instance->rest()->post('content/library/item/update-session', [
+				'library_item_id' => $itemId,
+			], [], 600);
+		} catch (VCenterException $e) {
+			$adopted = $this->adoptActiveSession($itemId);
+			if ($adopted === null) {
+				throw $e;
+			}
+			return $adopted;
+		}
 		if (!is_string($id)) {
 			throw new VCenterException('Update session create returned no id', 0, 'LibraryError');
 		}
 		return $id;
+	}
+
+	/** An ACTIVE session for the item, when one exists. */
+	private function adoptActiveSession(string $itemId): ?string
+	{
+		try {
+			foreach ($this->instance->rest()->get('content/library/item/update-session') ?? [] as $sessionId) {
+				$session = $this->instance->rest()->get(
+					'content/library/item/update-session/' . rawurlencode((string) $sessionId), [], 300);
+				if (is_array($session)
+					&& ($session['library_item_id'] ?? null) === $itemId
+					&& ($session['state'] ?? null) === 'ACTIVE') {
+					return (string) $sessionId;
+				}
+			}
+		} catch (VCenterException $e) {
+			// list shape changed; nothing to adopt
+		}
+		return null;
 	}
 
 	/** Best-effort session cancel (failure paths before complete). */
@@ -110,64 +175,71 @@ class ContentLibrary
 	 * Have vCenter pull a file into the session. Handles both a remote
 	 * URL and a ds:/// datastore URI, so the OVA never crosses this
 	 * server. The updatesession/file resource only exists in the legacy
-	 * /rest flavor on 8.0 (verified against 8.0.3).
+	 * /rest flavor on 8.0 (verified against 8.0.3). $size is mandatory
+	 * in practice: without it the server registers zero bytes and the
+	 * item completes empty.
 	 *
 	 * @throws VCenterException
 	 */
-	public function addPullFile(string $sessionId, string $fileName, string $uri, ?string $thumbprint = null): void
+	public function addPullFile(string $sessionId, string $fileName, string $uri, ?string $thumbprint = null, ?int $size = null): void
 	{
 		$endpoint = ['uri' => $uri];
 		if ($thumbprint !== null) {
 			$endpoint['ssl_certificate_thumbprint'] = $thumbprint;
 		}
-		$this->legacy(
-			'rest/com/vmware/content/library/item/updatesession/file/id:' . $sessionId . '?~action=add', [
-				'file_spec' => [
-					'name' => $fileName,
-					'source_type' => 'PULL',
-					'source_endpoint' => $endpoint,
-				],
-			]);
+		$spec = [
+			'name' => $fileName,
+			'source_type' => 'PULL',
+			'source_endpoint' => $endpoint,
+		];
+		if ($size !== null) {
+			$spec['size'] = $size;
+		}
+		$body = ['file_spec' => $spec];
+		$path = 'rest/com/vmware/content/library/item/updatesession/file/id:' . $sessionId . '?~action=add';
+		// Items created (or adopted) moments earlier may lack their
+		// storage backing yet; 'Cannot find library item' resolves on
+		// its own within a minute or two.
+		for ($attempt = 0; ; $attempt++) {
+			try {
+				$this->legacy($path, $body);
+				return;
+			} catch (VCenterException $e) {
+				if ($attempt >= 24
+					|| !str_contains($e->getMessage(), 'Cannot find library item')) {
+					throw $e;
+				}
+				usleep(5000000);
+			}
+		}
 	}
 
 	/**
-	 * Wait until every file in the session is READY.
+	 * PULL transfers run during and after complete; completion means the
+	 * SESSION leaves ACTIVE (file-level status is not reliable: vCenter
+	 * reports READY before pulling). ERROR carries the failure detail.
 	 *
-	 * @return array<int,array> UpdateSession file entries
-	 * @throws VCenterException On a terminal file error or timeout
+	 * @throws VCenterException On session ERROR or timeout
 	 */
-	public function waitFilesReady(string $sessionId, int $timeoutSec = 3600): array
+	public function waitSessionDone(string $sessionId, int $timeoutSec = 3600): void
 	{
 		$deadline = microtime(true) + $timeoutSec;
 		while (true) {
-			$files = $this->legacy(
-				'rest/com/vmware/content/library/item/updatesession/file?~action=list',
-				['update_session_id' => $sessionId]) ?? [];
-			if (!is_array($files)) {
-				$files = [];
+			$session = $this->instance->rest()->get(
+				'content/library/item/update-session/' . rawurlencode($sessionId), [], 300);
+			$state = (string) (is_array($session) ? ($session['state'] ?? '') : '');
+			if ($state === 'ERROR') {
+				$message = is_array($session['error_message'] ?? null)
+					? (string) ($session['error_message']['default_message'] ?? 'transfer error')
+					: 'transfer error';
+				throw new VCenterException("Library import failed: {$message}", 0, 'Transfer');
 			}
-			$done = count($files) > 0;
-			foreach ($files as $file) {
-				$status = (string) (is_array($file) ? ($file['status'] ?? '') : '');
-				if ($status === 'ERROR') {
-					$message = is_array($file['error_message'] ?? null)
-						? (string) ($file['error_message']['default_message'] ?? 'transfer error')
-						: 'transfer error';
-					throw new VCenterException(
-						"Library pull of " . (string) ($file['name'] ?? '?') . " failed: {$message}",
-						0, 'Transfer'
-					);
-				}
-				if (in_array($status, self::FILE_PENDING_STATES, true)) {
-					$done = false;
-				}
-			}
-			if ($done) {
-				return $files;
+			if ($state !== '' && $state !== 'ACTIVE') {
+				return;
 			}
 			if (microtime(true) >= $deadline) {
 				throw new VCenterException(
-					"Timed out waiting {$timeoutSec}s for library transfer of session {$sessionId}",
+					"Timed out waiting {$timeoutSec}s for library session {$sessionId} (last state: {$state})",
 					0, 'TaskTimeout'
 				);
 			}
@@ -221,12 +293,23 @@ class ContentLibrary
 	 */
 	public function deployOvf(string $itemId, array $target, array $spec, int $timeoutSec = 3600): array
 	{
-		$result = $this->instance->rest()->post(
-			'vcenter/ovf/library-item/' . rawurlencode($itemId),
-			['target' => $target, 'deployment_spec' => $spec],
-			['action' => 'deploy'],
-			$timeoutSec
-		);
+		$path = 'vcenter/ovf/library-item/' . rawurlencode($itemId);
+		$body = ['target' => $target, 'deployment_spec' => $spec];
+		// After the update session completes, vCenter still unpacks the
+		// OVF asynchronously; deploys issued too early get 'not an OVF'.
+		for ($attempt = 0; ; $attempt++) {
+			$result = null;
+			try {
+				$result = $this->instance->rest()->post($path, $body, ['action' => 'deploy'], $timeoutSec);
+			} catch (VCenterException $e) {
+				if ($attempt < 24 && str_contains($e->getMessage(), 'not an OVF')) {
+					usleep(5000000);
+					continue;
+				}
+				throw $e;
+			}
+			break;
+		}
 		if (!is_array($result)) {
 			throw new VCenterException('OVF deploy returned no result', 0, 'Deploy');
 		}

@@ -41,6 +41,30 @@ class OvfToolsTest extends TestCase
 	private function soapProperties(FakeHttp $fake): void
 	{
 		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'RetrievePropertiesEx'), function (array $c) {
+			if (str_contains($c['body'], '<pathSet>info</pathSet>')) {
+				// browseDatastore task poll
+				return ['code' => 200, 'body' => '<?xml version="1.0"?>'
+					. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><soapenv:Body>'
+					. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>'
+					. '<obj type="Task">task-99</obj>'
+					. '<propSet><name>info</name><val xsi:type="TaskInfo">'
+					. '<state>success</state>'
+					. '<result xsi:type="HostDatastoreBrowserSearchResults">'
+					. '<folderPath>[CDImages] packages</folderPath>'
+					. '<file xsi:type="IsoImageFileInfo"><path>app.ova</path><fileSize>4096</fileSize></file>'
+					. '</result></val>'
+					. '</propSet>'
+					. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>'];
+			}
+			if (str_contains($c['body'], '<pathSet>browser</pathSet>')) {
+				return ['code' => 200, 'body' => '<?xml version="1.0"?>'
+					. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><soapenv:Body>'
+					. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>'
+					. '<obj type="Datastore">datastore-21</obj>'
+					. '<propSet><name>name</name><val xsi:type="xsd:string">CDImages</val></propSet>'
+					. '<propSet><name>browser</name><val xsi:type="ManagedObjectReference" type="HostDatastoreBrowser">datastoreBrowser</val></propSet>'
+					. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>'];
+			}
 			$objects = '';
 			if (str_contains($c['body'], 'summary.url')) {
 				return ['code' => 200, 'body' => $this->fixture('soap/datastore-summary-url.xml')];
@@ -60,6 +84,11 @@ class OvfToolsTest extends TestCase
 				. '<RetrievePropertiesExResponse xmlns="urn:vim25"><returnval><objects>' . $objects
 				. '</objects></returnval></RetrievePropertiesExResponse></soapenv:Body></soapenv:Envelope>'];
 		});
+		$fake->when(fn(array $c) => str_contains($c['body'] ?? '', 'SearchDatastore_Task'),
+			fn() => ['code' => 200, 'body' => '<?xml version="1.0"?>'
+				. '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>'
+				. '<SearchDatastore_TaskResponse xmlns="urn:vim25"><returnval type="Task">task-99</returnval></SearchDatastore_TaskResponse>'
+				. '</soapenv:Body></soapenv:Envelope>']);
 	}
 
 	private function datastoreRoute(FakeHttp $fake): void
@@ -69,21 +98,20 @@ class OvfToolsTest extends TestCase
 			: ['code' => 200, 'body' => '[]']);
 	}
 
-	/** Content library routes; $fileStatus drives the transfer wait. */
-	private function libraryRoutes(FakeHttp $fake, string $fileStatus = 'READY', ?string $errorMessage = null): void
+	/** Content library routes; $sessionState drives the import wait. */
+	private function libraryRoutes(FakeHttp $fake, string $sessionState = 'DONE', ?string $errorMessage = null): void
 	{
 		// nested resource routes first: FakeHttp matching is substring + first hit
-		// legacy /rest file ops: add (id: path) and list (?~action=list)
 		$fake->when(fn(array $c) => $c['method'] === 'POST' && str_contains($c['url'], 'updatesession/file')
 				&& str_contains($c['url'], '~action=add'),
 			fn() => ['code' => 200, 'body' => '{"value":{"name":"app.ova","status":"WAITING_FOR_TRANSFER"}}']);
-		$fake->when(fn(array $c) => $c['method'] === 'POST' && str_contains($c['url'], 'updatesession/file')
-				&& str_contains($c['url'], '~action=list'),
-			fn() => ['code' => 200, 'body' => json_encode(['value' => [[
-				'name' => 'app.ova',
-				'status' => $fileStatus,
+		$fake->when(fn(array $c) => $c['method'] === 'GET' && str_contains($c['url'], '/update-session/session-9'),
+			fn() => ['code' => 200, 'body' => json_encode([
+				'id' => 'session-9',
+				'library_item_id' => 'item-55',
+				'state' => $sessionState,
 				'error_message' => $errorMessage !== null ? ['default_message' => $errorMessage] : null,
-			]]])]);
+			])]);
 		$fake->when(fn(array $c) => $c['method'] === 'POST' && str_contains($c['url'], '/update-session/session-9'),
 			fn() => ['code' => 204, 'body' => '']);
 		$fake->when(fn(array $c) => $c['method'] === 'POST' && str_contains($c['url'], '/content/library/item/update-session'),
@@ -194,6 +222,7 @@ class OvfToolsTest extends TestCase
 		$add = $fake->calls('POST', 'updatesession/file')[0];
 		$spec = json_decode($add['body'], true)['file_spec'];
 		$this->assertSame('PULL', $spec['source_type']);
+		$this->assertSame(4096, $spec['size']);
 		$this->assertSame('ds:///vmfs/volumes/6655aa42-aaaa-bbbb-0050566332aa/packages/app.ova',
 			$spec['source_endpoint']['uri']);
 		$this->assertSame('app.ova', $spec['name']);

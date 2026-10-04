@@ -32,8 +32,30 @@
   disk instead of holding them in memory; `RestClient` gained a
   per-call timeout and a legacy-`/rest` endpoint flavor, both needed
   for content-library transfers and the synchronous deploy call.
-- Datastore file downloads and OVF deploys verified live against
-  vCenter 8.0.3.
+- End-to-end verified live against vCenter 8.0.3 with the Ubuntu
+  26.04 (Resolute) cloud-image OVA over an https PULL import.
+
+### Fixed
+
+- vapi errors of the current shape (`{"error_type","messages"}` at top
+  level) now surface their `default_message`; previously only the
+  legacy `value`-wrapped shape was decoded, hiding error detail.
+- Content-library import robustness, all live-driving failures on
+  vCenter 8.0.3 under load:
+  - file specs now carry an explicit size (resolved via URL HEAD or
+    datastore browse); size-less adds import empty items,
+  - import completion is judged by the update session leaving ACTIVE,
+    not by file-level status (which reports READY early),
+  - item/session create adopt-on-timeout: the service can outlive the
+    client timeout while still creating them,
+  - file add retries through 'Cannot find library item' (storage
+    backing materializes late) and deploy retries through 'not an
+    OVF' (descriptor unpacks asynchronously after complete).
+- `deploy_ova` URL sources: the peer certificate thumbprint is now
+  derived from a HEAD probe when `thumbprint` is not passed (TOFU,
+  matching the library transfer semantics govc uses).
+- Big staged downloads raise PHP `memory_limit` to 4 GiB: the HTTP
+  engine's write callback also accumulates the body in memory.
 
 ## [0.4.0] - 2026-09-27
 

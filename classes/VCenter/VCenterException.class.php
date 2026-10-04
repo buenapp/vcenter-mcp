@@ -43,8 +43,8 @@ class VCenterException extends \Exception
 		$decoded = json_decode($body, true);
 
 		if (is_array($decoded)) {
-			$type = $decoded['type'] ?? null;
-			$messages = $decoded['value']['messages'] ?? [];
+			$type = $decoded['type'] ?? $decoded['error_type'] ?? null;
+			$messages = $decoded['value']['messages'] ?? $decoded['messages'] ?? [];
 			if (is_array($messages) && isset($messages[0]['default_message'])) {
 				$detail = $messages[0]['default_message'];
 			} elseif (isset($decoded['value']) && is_string($decoded['value'])) {
