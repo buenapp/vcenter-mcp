@@ -27,7 +27,7 @@ $pharPath   = $baseDir . '/' . $pharName;
 $entryPoint = 'bin/vcenter-mcp';
 
 // Directories to include in the PHAR
-$includeDirs = ['system', 'classes', 'libraries', 'tools'];
+$includeDirs = ['system', 'includes', 'classes', 'libraries', 'tools'];
 
 // Extra files to include (relative to base)
 $extraFiles = [

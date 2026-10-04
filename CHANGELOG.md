@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-10-04
+
+### Fixed
+
+- The built phar did not ship `includes/`, so 0.5.0 phar crashed at
+  startup with an undefined `enchilada_mcp_register_tools()`. The
+  builder now packs `includes/`; verified `tools/list` over stdio from
+  the freshly built phar (48 tools registered).
+
 ## [0.5.0] - 2026-10-04
 
 ### Added
