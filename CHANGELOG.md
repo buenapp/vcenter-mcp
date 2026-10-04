@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.5.0] - 2026-10-04
+
+### Added
+
+- PCI/DirectPath passthrough management (issue #19):
+  - `list_host_pci(host)` — passthrough state per PCI device from
+    vim25 (`config.pciPassthruInfo` joined with `hardware.pciDevice`);
+    `capable_only=true` by default.
+  - `list_passthrough_devices(vm)` — a VM's Dynamic DirectPath
+    devices with backing PCI id (`assignedId`), vendor/device ids and
+    custom label.
+  - `attach_pci(vm, device, host?)` / `detach_pci(vm, device)` via
+    ReconfigVM_Task; the device host defaults to the VM's runtime
+    host, devices already attached to another VM on the host are
+    refused, and both require the VM powered off.
+- OVA/OVF deployment (issue #18):
+  - `ovf_info(image)` — parses the OVF descriptor of a datastore or
+    http(s) package and reports name, networks, vApp properties,
+    disks and EULAs.
+  - `deploy_ova(image, name, ...)` — imports a tar .ova into a content
+    library staging item with a server-side PULL (http(s) URL, or
+    `ds:///vmfs/volumes/<uuid>` for datastore paths, so no bulk bytes
+    cross this server), deploys it through `vcenter/ovf` with network
+    mappings, vApp properties, placement and EULA acceptance, then
+    deletes the staged item. `power_on` starts the VM after deploy.
+- Instance default `content_library` renames the staging library
+  (default `vcenter-mcp-staging`, created on the target datastore and
+  reused).
+- `SoapClient::downloadDatastoreFileTo()` streams datastore files to
+  disk instead of holding them in memory; `RestClient` gained a
+  per-call timeout and a legacy-`/rest` endpoint flavor, both needed
+  for content-library transfers and the synchronous deploy call.
+- Datastore file downloads and OVF deploys verified live against
+  vCenter 8.0.3.
+
 ## [0.4.0] - 2026-09-27
 
 ### Added
