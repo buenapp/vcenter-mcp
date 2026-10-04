@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="VirtualMachine">vm-42</obj>
+          <propSet>
+            <name>config.hardware.device</name>
+            <val xsi:type="ArrayOfVirtualDevice">
+              <VirtualDevice xsi:type="VirtualMachineVideoCard">
+                <key>400</key>
+                <deviceInfo>
+                  <label>Video card</label>
+                  <summary>Video card</summary>
+                </deviceInfo>
+                <controllerKey>100</controllerKey>
+                <unitNumber>17</unitNumber>
+              </VirtualDevice>
+              <VirtualDevice xsi:type="VirtualPCIPassthrough">
+                <key>13000</key>
+                <deviceInfo>
+                  <label>PCI device 0</label>
+                  <summary>Dynamic DirectPath</summary>
+                </deviceInfo>
+                <backing xsi:type="VirtualPCIPassthroughDynamicBackingInfo">
+                  <deviceName></deviceName>
+                  <allowedDevice xsi:type="VirtualPCIPassthroughAllowedDevice">
+                    <vendorId>4318</vendorId>
+                    <deviceId>7091</deviceId>
+                  </allowedDevice>
+                  <assignedId>0000:63:00.0</assignedId>
+                  <customLabel>Tesla P4 on esx-gpu1</customLabel>
+                </backing>
+              </VirtualDevice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>

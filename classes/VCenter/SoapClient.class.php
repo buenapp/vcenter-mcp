@@ -326,6 +326,56 @@ class SoapClient
 		return $body;
 	}
 
+	/**
+	 * Streaming variant of downloadDatastoreFile: writes the datastore
+	 * file to $destPath instead of holding it in memory. Returns the
+	 * byte count written.
+	 *
+	 * @throws VCenterException
+	 */
+	public function downloadDatastoreFileTo(string $datastorePath, string $dcName, string $dsName, string $destPath, ?int $timeout = null): int
+	{
+		$this->ensureSession();
+		$path = preg_replace('/^\[[^\]]+\]\s*/', '', $datastorePath);
+		$endpoint = 'folder/' . implode('/', array_map('rawurlencode', explode('/', $path)))
+			. '?dcPath=' . rawurlencode($dcName) . '&dsName=' . rawurlencode($dsName);
+		$headers = ['Cookie: vmware_soap_session="' . $this->sessionKey . '"'];
+
+		$fake = $this->instance->httpClient();
+		if ($fake !== null) {
+			$response = $fake('GET', $this->instance->url() . '/' . $endpoint, $headers, null);
+			if ($response['code'] !== 200) {
+				throw new VCenterException("Datastore file download failed (HTTP {$response['code']}) for {$datastorePath}", $response['code'], 'Download');
+			}
+			$body = (string) ($response['body'] ?? '');
+			if (@file_put_contents($destPath, $body) === false) {
+				throw new VCenterException("Cannot write staging file {$destPath}", 0, 'Staging');
+			}
+			return strlen($body);
+		}
+
+		$fh = @fopen($destPath, 'wb');
+		if ($fh === false) {
+			throw new VCenterException("Cannot write staging file {$destPath}", 0, 'Staging');
+		}
+		$bytes = 0;
+		try {
+			$this->instance->http()->call($endpoint, null, 'GET', $headers, $timeout, 'raw',
+				function (string $chunk) use ($fh, &$bytes) {
+					fwrite($fh, $chunk);
+					$bytes += strlen($chunk);
+				});
+			$code = $this->instance->http()->getHttpCode();
+		} finally {
+			fclose($fh);
+		}
+		if ($code !== 200) {
+			@unlink($destPath);
+			throw new VCenterException("Datastore file download failed (HTTP {$code}) for {$datastorePath}", $code, 'Download');
+		}
+		return $bytes;
+	}
+
 	/** DeleteDatastoreFile_Task via FileManager; returns the Task MoRef. */
 	public function deleteDatastoreFile(string $datastorePath, array $datacenterMoRef): array
 	{
@@ -673,14 +723,18 @@ class SoapClient
 	 *
 	 * @param  array{type:string,id:string} $vm              VirtualMachine MoRef
 	 * @param  string                       $deviceChangeXml Inner <deviceChange> XML (pre-escaped)
+	 * @param  string                       $specSuffixXml   Additional <spec> fields that sort after
+	 *                                                     deviceChange in the ConfigSpec sequence
+	 *                                                     (e.g. memoryReservationLockedToMax)
 	 * @return array{type:string,id:string} Task MoRef
 	 * @throws VCenterException
 	 */
-	public function reconfigVm(array $vm, string $deviceChangeXml): array
+	public function reconfigVm(array $vm, string $deviceChangeXml, string $specSuffixXml = ''): array
 	{
 		$ret = $this->invokeAuthed('ReconfigVM_Task', $vm['type'], $vm['id'],
 			'<spec xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
 			. $deviceChangeXml
+			. $specSuffixXml
 			. '</spec>');
 		return ['type' => (string) $ret['type'], 'id' => (string) $ret];
 	}

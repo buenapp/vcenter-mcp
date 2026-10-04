@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <soapenv:Body>
+    <RetrievePropertiesExResponse xmlns="urn:vim25">
+      <returnval>
+        <objects>
+          <obj type="HostSystem">host-12</obj>
+          <propSet>
+            <name>name</name>
+            <val xsi:type="xsd:string">esx-gpu1.example.com</val>
+          </propSet>
+          <propSet>
+            <name>config.pciPassthruInfo</name>
+            <val xsi:type="ArrayOfHostPciPassthruInfo">
+              <HostPciPassthruInfo>
+                <id>0000:63:00.0</id>
+                <dependentDevice>false</dependentDevice>
+                <passthruEnabled>true</passthruEnabled>
+                <passthruActive>true</passthruActive>
+                <passthruCapable>true</passthruCapable>
+              </HostPciPassthruInfo>
+              <HostPciPassthruInfo>
+                <id>0000:65:00.0</id>
+                <dependentDevice>false</dependentDevice>
+                <passthruEnabled>true</passthruEnabled>
+                <passthruActive>true</passthruActive>
+                <passthruCapable>true</passthruCapable>
+              </HostPciPassthruInfo>
+              <HostPciPassthruInfo>
+                <id>0000:00:1f.6</id>
+                <dependentDevice>false</dependentDevice>
+                <passthruEnabled>false</passthruEnabled>
+                <passthruActive>false</passthruActive>
+                <passthruCapable>false</passthruCapable>
+              </HostPciPassthruInfo>
+            </val>
+          </propSet>
+          <propSet>
+            <name>hardware.pciDevice</name>
+            <val xsi:type="ArrayOfHostPciDevice">
+              <HostPciDevice>
+                <id>0000:63:00.0</id>
+                <classId>770</classId>
+                <bus>99</bus>
+                <slot>0</slot>
+                <function>0</function>
+                <configuredDriver></configuredDriver>
+                <deviceName>GP104GL [Tesla P4]</deviceName>
+                <deviceId>7091</deviceId>
+                <subDeviceId>4498</subDeviceId>
+                <vendorId>4318</vendorId>
+                <subVendorId>4318</subVendorId>
+              </HostPciDevice>
+              <HostPciDevice>
+                <id>0000:65:00.0</id>
+                <classId>770</classId>
+                <bus>101</bus>
+                <slot>0</slot>
+                <function>0</function>
+                <configuredDriver></configuredDriver>
+                <deviceName>GP104GL [Tesla P4]</deviceName>
+                <deviceId>7091</deviceId>
+                <subDeviceId>4498</subDeviceId>
+                <vendorId>4318</vendorId>
+                <subVendorId>4318</subVendorId>
+              </HostPciDevice>
+              <HostPciDevice>
+                <id>0000:00:1f.6</id>
+                <classId>512</classId>
+                <bus>0</bus>
+                <slot>31</slot>
+                <function>6</function>
+                <configuredDriver>ntg3</configuredDriver>
+                <deviceName>Ethernet Connection (7) I219-V</deviceName>
+                <deviceId>5600</deviceId>
+                <subDeviceId>0</subDeviceId>
+                <vendorId>32902</vendorId>
+                <subVendorId>32902</subVendorId>
+              </HostPciDevice>
+            </val>
+          </propSet>
+        </objects>
+      </returnval>
+    </RetrievePropertiesExResponse>
+  </soapenv:Body>
+</soapenv:Envelope>
