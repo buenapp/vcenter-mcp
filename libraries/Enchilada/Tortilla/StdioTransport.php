@@ -219,6 +219,64 @@ class StdioTransport
 	}
 
 	/**
+	 * The I/O mode run() uses, or will use with the current settings.
+	 * For code that must pick a loop-driven or a blocking strategy before
+	 * run() starts (e.g. an OAuth callback listener set up at startup).
+	 *
+	 * @return string 'reactor' or 'blocking'
+	 */
+	public function effectiveIoMode(): string
+	{
+		return $this->resolvedMode ?? $this->chooseIoMode()[0];
+	}
+
+	/**
+	 * Resolve the requested mode against the platform, the injected loop
+	 * and stdin.
+	 *
+	 * @return array{0:string,1:array<int,string>} mode, and notes to log
+	 */
+	private function chooseIoMode(): array
+	{
+		$mode = $this->ioMode;
+		$notes = [];
+		if ($mode === 'auto') {
+			// On Windows an anonymous pipe (which is what an MCP host
+			// hands us as stdin) cannot be polled from PHP at all:
+			// stream_select() misreports pipes and libev/libevent only
+			// accept sockets. Blocking reads are the only correct choice.
+			$mode = (\PHP_OS_FAMILY === 'Windows') ? 'blocking' : 'reactor';
+
+			// Reactor I/O needs an event loop, and the caller owns that
+			// choice (same contract as EnchiladaHttpServer): run() never
+			// provisions one. Degrade rather than refuse to start: a
+			// stdio server on blocking reads is fully functional, it
+			// just cannot answer pings mid-call.
+			if ($mode === 'reactor' && $this->loop === null) {
+				$notes[] = 'NOTE no event loop injected; using blocking I/O. Pings are not answered during a tool call — progress notifications still are. For reactor I/O: $transport->setLoop(...) — house default is ComalEventLoop::create().';
+				$mode = 'blocking';
+			}
+		}
+
+		if ($mode === 'reactor') {
+			// Reactor EOF delivery assumes a pollable stream. A regular
+			// file as stdin (`server < request.json`, the natural way to
+			// smoke-test a server) delivers bytes through EVFILT_READ but
+			// never reports another event once the final byte is consumed
+			// — EV_EOF would have to arrive as a state change on a fd that
+			// does not change — so the server would wait forever for more
+			// input. Blocking reads report EOF on regular files correctly;
+			// degrade instead of hanging.
+			$stat = fstat(STDIN);
+			if (is_array($stat) && ($stat['mode'] & 0170000) === 0100000) {   // S_ISREG
+				$notes[] = 'NOTE stdin is a regular file; reactor I/O cannot observe its EOF — using blocking I/O';
+				$mode = 'blocking';
+			}
+		}
+		return [$mode, $notes];
+	}
+
+	/**
 	 * Send a keepalive notification after $seconds of complete wire
 	 * silence. 0 disables (default). Reactor mode only.
 	 */
@@ -289,39 +347,9 @@ class StdioTransport
 		$this->running = true;
 		$this->lastWireAt = microtime(true);
 
-		$mode = $this->ioMode;
-		if ($mode === 'auto') {
-			// On Windows an anonymous pipe (which is what an MCP host
-			// hands us as stdin) cannot be polled from PHP at all:
-			// stream_select() misreports pipes and libev/libevent only
-			// accept sockets. Blocking reads are the only correct choice.
-			$mode = (\PHP_OS_FAMILY === 'Windows') ? 'blocking' : 'reactor';
-
-			// Reactor I/O needs an event loop, and the caller owns that
-			// choice (same contract as EnchiladaHttpServer): run() never
-			// provisions one. Degrade rather than refuse to start: a
-			// stdio server on blocking reads is fully functional, it
-			// just cannot answer pings mid-call.
-			if ($mode === 'reactor' && $this->loop === null) {
-				$this->log('NOTE no event loop injected; using blocking I/O. Pings are not answered during a tool call — progress notifications still are. For reactor I/O: $transport->setLoop(...) — house default is ComalEventLoop::create().');
-				$mode = 'blocking';
-			}
-		}
-
-		if ($mode === 'reactor') {
-			// Reactor EOF delivery assumes a pollable stream. A regular
-			// file as stdin (`server < request.json`, the natural way to
-			// smoke-test a server) delivers bytes through EVFILT_READ but
-			// never reports another event once the final byte is consumed
-			// — EV_EOF would have to arrive as a state change on a fd that
-			// does not change — so the server would wait forever for more
-			// input. Blocking reads report EOF on regular files correctly;
-			// degrade instead of hanging.
-			$stat = fstat(STDIN);
-			if (is_array($stat) && ($stat['mode'] & 0170000) === 0100000) {   // S_ISREG
-				$this->log('NOTE stdin is a regular file; reactor I/O cannot observe its EOF — using blocking I/O');
-				$mode = 'blocking';
-			}
+		[$mode, $notes] = $this->chooseIoMode();
+		foreach ($notes as $note) {
+			$this->log($note);
 		}
 		$this->resolvedMode = $mode;
 

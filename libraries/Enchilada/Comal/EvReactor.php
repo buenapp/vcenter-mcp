@@ -68,6 +68,10 @@ class EvReactor implements ReactorInterface
 	{
 		$id = $this->generateId();
 
+		// libev measures timers from its cached "now", which is only
+		// refreshed while the loop runs; after idle time or a long
+		// callback it is stale and the timer would fire early.
+		$this->loop->nowUpdate();
 		$watcher = $this->loop->timer($seconds, 0.0, function ($watcher) use ($id, $callback) {
 			$callback();
 			// One-shot: auto-cancel after firing
@@ -82,6 +86,7 @@ class EvReactor implements ReactorInterface
 	{
 		$id = $this->generateId();
 
+		$this->loop->nowUpdate();   // see delay()
 		$watcher = $this->loop->timer($interval, $interval, function () use ($callback) {
 			$callback();
 		});
