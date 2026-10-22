@@ -11,14 +11,55 @@ jobs:
     runs-on: FreeBSD
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        run: git clone --depth=1 --branch=${{ github.head_ref || github.ref_name }} ${{ github.server_url }}/${{ github.repository }}.git ${{ github.workspace }}
 
       - name: Install dependencies
-        run: doas pkg install -y phpunit11-php84
+        run: doas pkg install -y phpunit11-php84 php84-curl
 
-      - name: Syntax check
+      - name: Lint (syntax check)
         run: |
-          find classes/ tools/ bin/ system/ libraries/ -name '*.php' -exec php -l {} \; | grep -v "No syntax errors" && exit 1 || true
+          cd ${{ github.workspace }}
+          find bin classes includes libraries system tools -name '*.php' -exec php -l {} + 2>&1 | grep -v "^No syntax errors" | grep -v "^$" && exit 1 || true
 
-      - name: Run tests
-        run: phpunit
+      - name: PHPUnit
+        run: |
+          cd ${{ github.workspace }}
+          phpunit --no-coverage --colors=never
+
+      - name: curl behaviour suite and lint (vendored libraries)
+        run: |
+          cd ${{ github.workspace }}
+          php tests/enchilada-curl/run.php --lib=libraries
+          php tests/enchilada-curl/lint_curl_door.php libraries/EnchiladaCurl libraries/EnchiladaMultiHTTP \
+            libraries/EnchiladaWorkerHTTP libraries/Enchilada/Tortilla
+
+  behaviour-windows:
+    runs-on: windows-2022
+    env:
+      PHP_DIR: C:\php84
+    steps:
+      - name: Checkout
+        run: |
+          cd "$env:GITHUB_WORKSPACE"
+          Get-ChildItem | Remove-Item -Recurse -Force
+          $ref = if ($env:GITHUB_EVENT_NAME -eq 'pull_request') { $env:GITHUB_HEAD_REF } else { $env:GITHUB_SHA }
+          # WinSSL curl needs --ssl-no-revoke against the internal-CA endpoint
+          & curl.exe -fL --ssl-no-revoke --retry 6 --retry-delay 5 -o repo.tar.gz "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/archive/$ref.tar.gz"
+          if ($LASTEXITCODE -ne 0) { throw "repo tarball fetch failed (curl rc=$LASTEXITCODE)" }
+          tar xf repo.tar.gz --strip-components=1
+          Remove-Item repo.tar.gz
+
+      - name: PHP (preinstalled on runner02)
+        run: |
+          # PHP 8.4.25 NTS in C:\php84, php.ini beside php.exe (curl, openssl, mbstring)
+          if (-not (Test-Path "$env:PHP_DIR\php.exe")) { throw "PHP not installed at $env:PHP_DIR" }
+          Add-Content -Path $env:GITHUB_PATH -Value $env:PHP_DIR
+
+      - name: curl behaviour suite and lint (vendored libraries)
+        run: |
+          cd "$env:GITHUB_WORKSPACE"
+          php -v
+          php tests/enchilada-curl/run.php --lib=libraries
+          if ($LASTEXITCODE -ne 0) { throw "behaviour suite failed" }
+          php tests/enchilada-curl/lint_curl_door.php libraries/EnchiladaCurl libraries/EnchiladaMultiHTTP libraries/EnchiladaWorkerHTTP libraries/Enchilada/Tortilla
+          if ($LASTEXITCODE -ne 0) { throw "curl lint failed" }

@@ -16,6 +16,17 @@
   0.13 s.
 - `screenshot()` keeps exactly one FramebufferUpdateRequest
   outstanding; the 1 s resend timer is gone from the data path.
+- Re-vendored the HTTP stack from the Enchilada Transport Split (Extras
+  #57-#60, Tortilla #7-#9, Comal #2): `EnchiladaMultiHTTP` no longer
+  retains completed requests (~0.31 MB per call died at ~413 calls),
+  Tortilla `HttpClient` runs on per-loop `EnchiladaWorkerHTTP` workers
+  under the Comal reactor (blocking `perform()` in blocking mode, no
+  polling floor), and Comal's EvReactor refreshes libev's cached time
+  before scheduling timers. `EnchiladaCurl` and `EnchiladaWorkerHTTP`
+  are newly vendored; `EnchiladaHTTP` gains `setUnixSocket()`.
+- CI gains the curl behaviour suite and the one-door-to-curl lint on
+  FreeBSD and Windows, following the atlassian-mcp#31 pattern;
+  `tests/enchilada-curl/` is byte-identical to atlassian-mcp#31.
 
 ## [0.5.1] - 2026-10-04
 

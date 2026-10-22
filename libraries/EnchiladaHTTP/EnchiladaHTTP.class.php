@@ -61,6 +61,7 @@ class EnchiladaHTTP {
 	protected $ca_cert;
 	protected $plaintext_auth;
 	protected $verify_ssl = true;
+	protected $unix_socket;
 	protected $last_http_code = 0;
 	protected $last_curl_errno = 0;
 	protected $last_curl_error = '';
@@ -194,6 +195,11 @@ class EnchiladaHTTP {
 		// Plain text HTTP authemtication
 		if(!empty($this->plaintext_auth)){
 			curl_setopt($ch, CURLOPT_USERPWD, $this->plaintext_auth);
+		}
+
+		// Unix domain socket; the URL host only fills the Host header
+		if(!empty($this->unix_socket)){
+			curl_setopt($ch, CURLOPT_UNIX_SOCKET_PATH, $this->unix_socket);
 		}
 
 		$result = curl_exec($ch);
@@ -352,6 +358,18 @@ class EnchiladaHTTP {
 	 */
 	public function setVerifySsl(bool $verify){
 		$this->verify_ssl = $verify;
+	}
+
+	/**
+	 * Connect through a Unix domain socket instead of TCP.
+	 *
+	 * The endpoint URL still supplies the scheme, path and Host header
+	 * (e.g. http://localhost); the connection goes to the socket.
+	 *
+	 * @param string|null $path Socket path, or null for TCP
+	 */
+	public function setUnixSocket(?string $path){
+		$this->unix_socket = $path;
 	}
 
 	/**

@@ -5,28 +5,36 @@ namespace Enchilada\Tortilla;
 /* Enchilada Framework 3.0
  * Loop-aware HTTP Client
  *
- * A synchronous-looking HTTP front end over \EnchiladaMultiHTTP that
+ * A synchronous-looking HTTP front end over Extras' curl clients that
  * decides per call HOW the wait happens, so tool code never has to
  * know:
  *
  *   reactor mode  An EventLoop is injected AND the caller is running
  *                 inside a Fiber (StdioTransport dispatches tool calls
- *                 that way). The client parks the calling fiber and
- *                 drives the curl_multi state machine from a loop
- *                 timer, so the transport keeps answering protocol
- *                 traffic (pings, cancellations) while the HTTP call
- *                 is in flight.
+ *                 that way). The request goes to the loop's
+ *                 \EnchiladaWorkerHTTP (one per loop, its watch hooks
+ *                 mapped to onReadable()/cancel()), which runs it in a
+ *                 worker process; the calling fiber parks until the
+ *                 worker's result arrives on a loop read watcher, so the
+ *                 transport keeps answering protocol traffic (pings,
+ *                 cancellations) and the loop thread never waits on curl.
  *
  *   blocking mode No loop, or no fiber (Windows stdio, PHP-FPM, plain
- *                 daemons). The client drives the state machine from
- *                 a bounded poll loop (\EnchiladaMultiHTTP::tick()
- *                 blocks up to 100ms in curl_multi_select). Pings
- *                 cannot be answered here — nothing can read stdin
- *                 meanwhile — so the injected $progress callable is
- *                 invoked on every iteration: with protocol revision
- *                 2026-07-28 having removed `ping`, progress
- *                 notifications are the ONLY liveness signal a modern
- *                 host gets during a slow call.
+ *                 daemons). The request runs to completion in place
+ *                 through \EnchiladaCurl::perform() (a blocking
+ *                 curl_exec(); no spinning while a name lookup has no
+ *                 socket). Pings cannot be answered here — nothing can
+ *                 read stdin meanwhile — so the injected $progress
+ *                 callable is invoked from curl's progress callback:
+ *                 with protocol revision 2026-07-28 having removed
+ *                 `ping`, progress notifications are the ONLY liveness
+ *                 signal a modern host gets during a slow call.
+ *
+ * Requests are always built by the caller's engine (buildSpec()), so
+ * subclassed API clients keep their URL, header and payload rules in
+ * both modes. Reactor-mode requests that cannot go to a worker (an
+ * upload with CURLFile parts, or a host where workers cannot start) run
+ * in place like blocking mode, which holds the loop for the transfer.
  *
  * Progress emission is deliberately asymmetric: in reactor mode the
  * transport's own progress timer fires while the fiber is parked, so
@@ -54,17 +62,22 @@ namespace Enchilada\Tortilla;
 
 class HttpClient
 {
-	/**
-	 * Interval (seconds) between drives of the curl_multi state
-	 * machine. tick() itself blocks up to 100ms in curl_multi_select
-	 * while handles are running, so a finer cadence buys nothing.
-	 */
-	private const TICK_INTERVAL = 0.05;
-
-	/** @var \EnchiladaMultiHTTP The driven multi client */
+	/** @var \EnchiladaMultiHTTP The caller's engine: request building, in-place transfers, decoding */
 	private \EnchiladaMultiHTTP $multi;
 
-	/** @var EventLoop|null Reactor loop; null forces the blocking poll */
+	/**
+	 * Worker lanes, one per loop: loop => {
+	 *   engine:   \EnchiladaWorkerHTTP,
+	 *   watchers: array<int,string> pipe resource id => loop watcher id,
+	 *   parked:   array<int,\Fiber> request id => waiting fiber,
+	 *   done:     array<int,array>  request id => outcome not yet picked up,
+	 * }
+	 *
+	 * @var \WeakMap<EventLoop,\stdClass>|null
+	 */
+	private static ?\WeakMap $lanes = null;
+
+	/** @var EventLoop|null Reactor loop; null forces in-place waits */
 	private ?EventLoop $loop;
 
 	/** @var \Closure|null "Emit progress now": function(): void */
@@ -83,12 +96,12 @@ class HttpClient
 	private array $lastResponseHeaders = [];
 
 	/**
-	 * @param \EnchiladaMultiHTTP $multi    The multi client to drive
-	 *                                      (subclassed API clients are
-	 *                                      welcome — they are the house
-	 *                                      pattern)
+	 * @param \EnchiladaMultiHTTP $multi    The engine (subclassed API
+	 *                                      clients are welcome — they are
+	 *                                      the house pattern)
 	 * @param EventLoop|null      $loop     Loop for fiber-suspending
-	 *                                      waits, or null to always poll
+	 *                                      waits, or null to always wait
+	 *                                      in place
 	 * @param callable|null       $progress function(): void — emit a
 	 *                                      progress notification for the
 	 *                                      in-flight request (blocking
@@ -116,8 +129,13 @@ class HttpClient
 	 */
 	public function call(string $method, $data = null, string $httpVerb = 'GET', array $extraHeaders = [], ?int $timeout = null, string $format = 'json', ?callable $writeCallback = null)
 	{
-		$requestId = $this->multi->queue($method, $data, $httpVerb, $extraHeaders, $timeout, $format, $writeCallback);
-		$outcome = $this->await($requestId);
+		$spec = $this->multi->buildSpec($method, $data, $httpVerb, $extraHeaders, $timeout, $format);
+		$fiber = \Fiber::getCurrent();
+
+		$outcome = ($fiber !== null && $this->loop !== null)
+			? $this->awaitWorker($spec, $writeCallback)
+			: null;
+		$outcome ??= $this->awaitInPlace($spec, $writeCallback);
 
 		$this->lastHttpCode = $outcome['http_code'];
 		$this->lastCurlErrno = $outcome['curl_errno'];
@@ -158,72 +176,88 @@ class HttpClient
 	}
 
 	/**
-	 * Drive the request to completion by whichever wait regime the
-	 * environment supports.
+	 * Run the request to completion in the calling thread, emitting
+	 * progress while it runs.
 	 *
 	 * @return array{result:mixed,error:?string,raw:?string,http_code:int,curl_errno:int,curl_error:string}
 	 */
-	private function await(int $requestId): array
+	private function awaitInPlace(array $spec, ?callable $writeCallback): array
 	{
-		$fiber = \Fiber::getCurrent();
-
-		// No loop, or not inside a Fiber (plain scripts, PHP-FPM,
-		// blocking stdio): nothing can be serviced while we wait, so
-		// drive the state machine in place and keep progress flowing.
-		if ($fiber === null || $this->loop === null) {
-			while (($outcome = $this->multi->getResult($requestId)) === null) {
-				$this->multi->tick();
-				$this->emitProgress();
-			}
-			return $outcome;
-		}
-
-		return $this->awaitReactor($requestId, $fiber);
+		$transport = $this->multi->perform($spec, $writeCallback, $this->progress !== null ? fn() => $this->emitProgress() : null);
+		return $this->multi::decodeTransport($spec['format'], $transport);
 	}
 
 	/**
-	 * Park the calling fiber and drive the state machine from a loop
-	 * timer, resuming once the request completes. The transport's own
-	 * progress timer covers progress emission while we are suspended.
+	 * Run the request on the loop's worker client and park the calling
+	 * fiber until its result arrives.
 	 *
-	 * @return array{result:mixed,error:?string,raw:?string,http_code:int,curl_errno:int,curl_error:string}
+	 * @return array{result:mixed,error:?string,raw:?string,http_code:int,curl_errno:int,curl_error:string}|null
+	 *         null when the request cannot go to a worker (it was not sent)
 	 */
-	private function awaitReactor(int $requestId, \Fiber $fiber): array
+	private function awaitWorker(array $spec, ?callable $writeCallback): ?array
 	{
-		$loop = $this->loop;
-		$outcome = null;
-		$failure = null;
-		$timerId = null;
+		if (!\EnchiladaWorkerHTTP::supported() || !\EnchiladaCurl::isPortable($spec)) {
+			return null;
+		}
+		$lane = self::lane($this->loop);
+		try {
+			$requestId = $lane->engine->queueSpec($spec, $writeCallback);
+		} catch (\InvalidArgumentException | \RuntimeException $e) {
+			return null;
+		}
 
-		$timerId = $loop->repeat(self::TICK_INTERVAL, function () use (&$timerId, &$outcome, &$failure, $requestId, $fiber, $loop) {
-			try {
-				$this->multi->tick();
-			} catch (\Throwable $e) {
-				// Surface the failure to the waiting call, not the loop.
-				$failure = $e;
-			}
+		$lane->parked[$requestId] = \Fiber::getCurrent();
+		while (!isset($lane->done[$requestId])) {
+			\Fiber::suspend();
+		}
+		$outcome = $lane->done[$requestId];
+		unset($lane->done[$requestId]);
+		return $outcome;
+	}
 
-			if ($failure === null) {
-				$outcome = $this->multi->getResult($requestId);
-			}
-			if ($outcome === null && $failure === null) {
-				return;
-			}
+	/**
+	 * The worker lane for a loop, created on first use.
+	 */
+	private static function lane(EventLoop $loop): \stdClass
+	{
+		self::$lanes ??= new \WeakMap();
+		if (isset(self::$lanes[$loop])) {
+			return self::$lanes[$loop];
+		}
 
-			if ($timerId !== null) {
-				$loop->cancel($timerId);
+		$lane = (object) ['engine' => new \EnchiladaWorkerHTTP(''), 'watchers' => [], 'parked' => [], 'done' => []];
+		$lane->engine->setWatchHooks(
+			function ($stream) use ($lane, $loop): void {
+				$lane->watchers[get_resource_id($stream)] = $loop->onReadable($stream, function ($stream) use ($lane): void {
+					self::completed($lane, $lane->engine->handleReadable($stream));
+				});
+			},
+			function ($stream) use ($lane, $loop): void {
+				$id = get_resource_id($stream);
+				if (isset($lane->watchers[$id])) {
+					$loop->cancel($lane->watchers[$id]);
+					unset($lane->watchers[$id]);
+				}
 			}
-			if ($fiber->isSuspended()) {
+		);
+		return self::$lanes[$loop] = $lane;
+	}
+
+	/**
+	 * Hand finished requests to their parked fibers.
+	 *
+	 * @param int[] $requestIds
+	 */
+	private static function completed(\stdClass $lane, array $requestIds): void
+	{
+		foreach ($requestIds as $requestId) {
+			$lane->done[$requestId] = $lane->engine->getResult($requestId);
+			$fiber = $lane->parked[$requestId] ?? null;
+			unset($lane->parked[$requestId]);
+			if ($fiber !== null && $fiber->isSuspended()) {
 				$fiber->resume();
 			}
-		});
-
-		\Fiber::suspend();
-
-		if ($failure !== null) {
-			throw $failure;
 		}
-		return $outcome;
 	}
 
 	/**

@@ -105,6 +105,8 @@ class VendoredLibraryLayoutTest extends TestCase
 		}
 		$pairs["$extras/HTTP/EnchiladaHTTP.class.php"] = 'libraries/EnchiladaHTTP/EnchiladaHTTP.class.php';
 		$pairs["$extras/HTTP/EnchiladaMultiHTTP.class.php"] = 'libraries/EnchiladaMultiHTTP/EnchiladaMultiHTTP.class.php';
+		$pairs["$extras/HTTP/EnchiladaCurl.class.php"] = 'libraries/EnchiladaCurl/EnchiladaCurl.class.php';
+		$pairs["$extras/HTTP/EnchiladaWorkerHTTP.class.php"] = 'libraries/EnchiladaWorkerHTTP/EnchiladaWorkerHTTP.class.php';
 		foreach (glob("$tortilla/src/*.php") ?: [] as $src) {
 			$pairs[$src] = 'libraries/Enchilada/Tortilla/' . basename($src);
 		}
