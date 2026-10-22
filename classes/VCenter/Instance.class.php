@@ -253,9 +253,22 @@ class Instance
 	}
 
 	/**
-	 * Open WebMKS console session for a VM, cached per vm id (tickets
-	 * are single-use; an established connection is reused). A session
-	 * that is no longer connected is discarded and rebuilt.
+	 * Open a new, uncached WebMKS session; the caller closes it.
+	 * Screenshots need one each (see WebMksClient::screenshot()).
+	 */
+	public function openWebMks(string $vmId): Console\WebMksClient
+	{
+		$client = $this->webMksFactory !== null
+			? ($this->webMksFactory)($this, $vmId)
+			: new Console\WebMksClient($this, $vmId);
+		$client->open();
+		return $client;
+	}
+
+	/**
+	 * Cached WebMKS session for key input, one per vm id (tickets are
+	 * single-use; an established connection is reused). A session that
+	 * is no longer connected is discarded and rebuilt.
 	 */
 	public function webMksSession(string $vmId): Console\WebMksClient
 	{
@@ -263,11 +276,7 @@ class Instance
 		if ($client !== null && $client->isOpen()) {
 			return $client;
 		}
-		$client = $this->webMksFactory !== null
-			? ($this->webMksFactory)($this, $vmId)
-			: new Console\WebMksClient($this, $vmId);
-		$client->open();
-		return $this->webMksSessions[$vmId] = $client;
+		return $this->webMksSessions[$vmId] = $this->openWebMks($vmId);
 	}
 
 	/** Drop a cached WebMKS session (after an I/O error). */

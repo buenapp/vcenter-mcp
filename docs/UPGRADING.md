@@ -43,6 +43,10 @@ test at `git show <branch>:<path>` until it merges.
 5. **WebMKS wire reads are single blocking `fread`s** with a stream
    timeout; never `drain()` a blocking socket (it loops until empty and
    burns the deadline). A timed-out TLS `fread` returns `false`.
-6. **webmks answers a FramebufferUpdateRequest with only the dirty
-   region** — `WebMksClient::screenshot()` re-requests until the
-   framebuffer is complete.
+6. **ESXi ignores the RFB non-incremental flag**: a session receives
+   only regions it has not been sent yet, split across responses
+   (~2 MB each, ~1 s apart), and an unchanged screen gets no reply.
+   A WebMKS session therefore yields one full frame:
+   `vm_screenshot` opens a new session per capture
+   (`Instance::openWebMks`) and `screenshot()` refuses a second call.
+   Only key input reuses the cached session.

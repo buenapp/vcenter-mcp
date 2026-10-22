@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- WebMKS screenshots run on a dedicated session per capture. ESXi
+  ignores the RFB non-incremental flag and only sends a session
+  regions it has not received yet, so a second capture on the cached
+  session of an unchanged screen waited out the 10 s deadline before
+  reconnecting. Captures now take ~1.4 s. Key input keeps the cached
+  session, and `vm_console_info` no longer tears it down.
+- `Framebuffer` stores pixels per row: a blit used to copy the whole
+  3 MB buffer for every row (3.7 s CPU per 1024x768 frame on the
+  event-loop thread, now 0.03 s), and `toRgb()` drops from 0.45 s to
+  0.13 s.
+- `screenshot()` keeps exactly one FramebufferUpdateRequest
+  outstanding; the 1 s resend timer is gone from the data path.
+
 ## [0.5.1] - 2026-10-04
 
 ### Fixed

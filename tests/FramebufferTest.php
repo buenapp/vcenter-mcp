@@ -27,18 +27,38 @@ class FramebufferTest extends TestCase
 		$this->assertSame("\xFF\x00\x00", substr($rgb, 2 * 3, 3)); // pixel (2,0) red
 	}
 
-	public function testResetClearsCoverageKeepsPixels(): void
+	public function testPartialRowBlitsAndOverlapCountOnce(): void
 	{
-		$fb = new Framebuffer(2, 1);
-		$fb->blit(0, 0, 2, 1, str_repeat(pack('V', 0x00FF0000), 2));
+		$fb = new Framebuffer(4, 2);
+		$fb->blit(1, 0, 2, 2, str_repeat(pack('V', 0x00FF0000), 4));  // red middle columns
+		$this->assertSame(0.5, $fb->coverage());
+
+		// overlaps column 2; only column 3 counts as newly painted
+		$fb->blit(2, 0, 2, 2, str_repeat(pack('V', 0x000000FF), 4));  // blue right columns
+		$this->assertSame(0.75, $fb->coverage());
+
+		$fb->blit(0, 0, 1, 2, str_repeat(pack('V', 0x0000FF00), 2));  // green left column
 		$this->assertTrue($fb->complete());
 
-		$fb->reset();
-		$this->assertFalse($fb->complete());
-		$this->assertSame(0.0, $fb->coverage());
+		$this->assertSame(
+			"\x00\xFF\x00" . "\xFF\x00\x00" . "\x00\x00\xFF" . "\x00\x00\xFF",
+			substr($fb->toRgb(), 0, 12)
+		);
+	}
 
-		// last-known pixels survive until fresh rectangles overwrite them
-		$this->assertSame("\xFF\x00\x00\xFF\x00\x00", $fb->toRgb());
+	public function testFullFrameBlitIsLinear(): void
+	{
+		// 1024x768 in six ESXi-shaped tiles: per-row storage keeps this
+		// well under a second (whole-buffer copies took ~4 s).
+		$fb = new Framebuffer(1024, 768);
+		$start = microtime(true);
+		foreach ([[0, 0, 304], [512, 0, 304], [0, 304, 224], [512, 304, 224], [0, 528, 240], [512, 528, 240]] as [$x, $y, $h]) {
+			$fb->blit($x, $y, 512, $h, str_repeat("\x10\x20\x30\x00", 512 * $h));
+		}
+		$rgb = $fb->toRgb();
+		$this->assertTrue($fb->complete());
+		$this->assertSame("\x30\x20\x10", substr($rgb, -3));
+		$this->assertLessThan(1.0, microtime(true) - $start);
 	}
 
 	public function testBlitRejectsOutOfBounds(): void
