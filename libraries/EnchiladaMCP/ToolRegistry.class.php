@@ -39,6 +39,14 @@ class ToolRegistry
 	private array $renamedFrom = [];
 
 	/**
+	 * Suggestion text per former tool name, from array `renamedFrom`
+	 * maps (former name => hint); those win over the bare current name.
+	 *
+	 * @var array<string,string>
+	 */
+	private array $renamedHint = [];
+
+	/**
 	 * Registered resource templates indexed by URI template.
 	 *
 	 * @var array<string,array{uriTemplate:string,name:string,description:string,mimeType:string}>
@@ -169,7 +177,16 @@ class ToolRegistry
 			$this->handlers[$toolName] = [$handler, $method->getName()];
 
 			if ($attr->renamedFrom !== null) {
-				$this->renamedFrom[$attr->renamedFrom] = $toolName;
+				// A string is one former name; an array maps each former
+				// name to a hint, and the hint is what an unknown-tool
+				// caller sees (e.g. 'push_mirror action=list').
+				$map = is_array($attr->renamedFrom) ? $attr->renamedFrom : [$attr->renamedFrom => null];
+				foreach ($map as $formerName => $hint) {
+					$this->renamedFrom[$formerName] = $toolName;
+					if ($hint !== null) {
+						$this->renamedHint[$formerName] = $hint;
+					}
+				}
 			}
 		}
 	}
@@ -291,7 +308,7 @@ class ToolRegistry
 		// always see the current name as the top suggestion.
 		$known = [];
 		if (isset($this->renamedFrom[$name])) {
-			$known[] = $this->renamedFrom[$name];
+			$known[] = $this->renamedHint[$name] ?? $this->renamedFrom[$name];
 		}
 
 		$queryTokens = explode('_', strtolower($name));

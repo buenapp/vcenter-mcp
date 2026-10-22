@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-10-22
+
+### Fixed
+
+- Re-vendored EnchiladaMCP for upstream `renamedFrom` map support
+  (Extras ecf3647, which landed mid-release).
+
 ## [0.6.0] - 2026-10-22
 
 ### Fixed

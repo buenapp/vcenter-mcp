@@ -28,8 +28,12 @@ class McpTool
 	 * @param bool|null   $destructiveHint If true, tool may perform destructive updates (only meaningful when readOnlyHint is not true)
 	 * @param bool|null   $idempotentHint  If true, repeated calls with the same arguments have no additional effect
 	 * @param bool|null   $openWorldHint   If true, tool interacts with external/unbounded entities outside a closed system
-	 * @param string|null $renamedFrom     Former tool name if this tool was renamed. Not callable —
-	 *                                     metadata only; used to improve unknown-tool suggestions.
+	 * @param string|array<string,string>|null $renamedFrom Former tool name(s) if this tool absorbed
+	 *                                     earlier tools. Not callable — metadata only; used to
+	 *                                     improve unknown-tool suggestions. A plain string is one
+	 *                                     former name. An array maps each former name to a hint
+	 *                                     needed when many old tools consolidate into one
+	 *                                     action-dispatched tool.
 	 * @param array|null  $outputSchema    JSON Schema for `structuredContent` (MCP 2025-06-18). When
 	 *                                     set, the tool advertises that it returns structured output
 	 *                                     and clients may validate against it. Declared last so that
@@ -52,7 +56,7 @@ class McpTool
 		public ?bool $destructiveHint = null,
 		public ?bool $idempotentHint = null,
 		public ?bool $openWorldHint = null,
-		public ?string $renamedFrom = null,
+		public string|array|null $renamedFrom = null,
 		public ?array $outputSchema = null,
 		public ?string $title = null
 	) {}
