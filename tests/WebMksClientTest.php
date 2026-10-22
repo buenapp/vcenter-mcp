@@ -145,38 +145,57 @@ class WebMksClientTest extends TestCase
 		$this->assertFalse($client->isOpen());
 	}
 
-	public function testSecondScreenshotCapturesFreshFrame(): void
+	public function testPartialResponsesRequestTheRestOneAtATime(): void
 	{
 		$fake = new FakeHttp();
 		$this->ticketRoute($fake, $this->thumbprint('sha1'));
 
-		// all-green 4x2 frame, served in reply to the second FBU request
-		$greenFrame = chr(0) . "\x00" . pack('n', 1)
-			. pack('nnnnN', 0, 0, 4, 2, 0) . str_repeat(pack('V', 0x0000FF00), 8);
-
-		$requestCount = 0;
-		$transport = $this->fakeTransport($this->certPem(), $this->serverScript(),
-			function (FakeWsTransport $t, string $data) use (&$requestCount, $greenFrame) {
+		// ESXi-shaped: each request is answered with only the part of
+		// the frame this session has not received yet (row 0, then row 1)
+		$serverInit = "RFB 003.008\n\x01\x01\x00\x00\x00\x00"
+			. pack('nn', 4, 2) . pack('CCCCnnnCCCxxx', 32, 24, 0, 1, 255, 255, 255, 16, 8, 0)
+			. pack('N', 1) . 'x';
+		$rows = [
+			chr(0) . "\x00" . pack('n', 1) . pack('nnnnN', 0, 0, 4, 1, 0) . str_repeat(pack('V', 0x00FF0000), 4),
+			chr(0) . "\x00" . pack('n', 1) . pack('nnnnN', 0, 1, 4, 1, 0) . str_repeat(pack('V', 0x000000FF), 4),
+		];
+		$requests = 0;
+		$transport = $this->fakeTransport($this->certPem(), $serverInit,
+			function (FakeWsTransport $t, string $data) use (&$requests, $rows) {
 				if (str_starts_with($data, 'GET ')) {
 					return;
 				}
 				[$frame] = WebSocketFrame::tryDecode($data);
-				if ($frame !== null && str_contains($frame->payload, "\x03")) {
-					$requestCount++;
-					if ($requestCount === 2) {
-						$t->feed(WebSocketFrame::binary($greenFrame, false)->encode());
+				if ($frame !== null && str_contains($frame->payload, "\x03\x00" . pack('nnnn', 0, 0, 4, 2))) {
+					if (isset($rows[$requests])) {
+						$t->feed(WebSocketFrame::binary($rows[$requests], false)->encode());
 					}
+					$requests++;
 				}
 			});
 
 		$client = new WebMksClient($this->instance($fake), 'vm-42', fn() => $transport);
 		$client->open();
+		$shot = $client->screenshot();
 
-		$first = $client->screenshot();
-		$second = $client->screenshot();
-		$this->assertGreaterThanOrEqual(2, $requestCount);
-		$this->assertNotSame($first['png'], $second['png'],
-			'second screenshot returned the cached first frame');
+		$this->assertSame(2, $requests, 'one request per partial response, none after completion');
+		$this->assertSame("\x89PNG\r\n\x1a\n", substr($shot['png'], 0, 8));
+	}
+
+	public function testSecondScreenshotOnSameSessionIsRefused(): void
+	{
+		$fake = new FakeHttp();
+		$this->ticketRoute($fake, $this->thumbprint('sha1'));
+		$transport = $this->fakeTransport($this->certPem(), $this->serverScript());
+
+		$client = new WebMksClient($this->instance($fake), 'vm-42', fn() => $transport);
+		$client->open();
+		$client->screenshot();
+
+		// ESXi would stay silent on an unchanged screen until the deadline
+		$this->expectException(VCenterException::class);
+		$this->expectExceptionMessageMatches('/new session per screenshot/');
+		$client->screenshot();
 	}
 
 	public function testTlsaTrustBasis(): void

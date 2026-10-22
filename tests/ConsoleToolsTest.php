@@ -312,6 +312,84 @@ class ConsoleToolsTest extends TestCase
 		$this->assertNotEmpty(array_filter($texts, fn($t) => str_contains($t, 'webmks unavailable (ws refused)')));
 	}
 
+	public function testScreenshotsUseOwnSessionsAndKeysReuseCachedOne(): void
+	{
+		$fake = new FakeHttp();
+		$this->poweredOn($fake);
+		$manager = $this->manager($fake->callable());
+
+		$log = new \stdClass();
+		$log->events = [];
+		$manager->setWebMksFactory(fn($inst, $vmId) => new class($inst, $vmId, $log) extends \VCenter\Console\WebMksClient {
+			private bool $open = false;
+			private int $id;
+			private static int $next = 0;
+
+			public function __construct(Instance $inst, string $vmId, private \stdClass $log)
+			{
+				parent::__construct($inst, $vmId);
+				$this->id = ++self::$next;
+			}
+
+			public function open(float $timeout = 10.0): void
+			{
+				$this->open = true;
+				$this->log->events[] = "open:{$this->id}";
+			}
+
+			public function isOpen(): bool
+			{
+				return $this->open;
+			}
+
+			public function close(): void
+			{
+				$this->open = false;
+				$this->log->events[] = "close:{$this->id}";
+			}
+
+			public function screenshot(float $timeout = 10.0): array
+			{
+				$this->log->events[] = "shot:{$this->id}";
+				return ['png' => file_get_contents(__DIR__ . '/fixtures/screenshot.png'), 'width' => 2, 'height' => 2];
+			}
+
+			public function sendKeys(array $strokes, int $delayMs = 20): int
+			{
+				$this->log->events[] = "keys:{$this->id}";
+				return count($strokes);
+			}
+
+			public function info(): array
+			{
+				return ['width' => 2, 'height' => 2];
+			}
+		});
+
+		$tools = new ConsoleTools($manager);
+		$tools->vm_send_keys('vm-42', 'a', null, false, 0, 'webmks');
+		$tools->vm_screenshot('vm-42', 'webmks');
+		$tools->vm_screenshot('vm-42', 'webmks');
+		$tools->vm_console_info('vm-42');
+		$tools->vm_send_keys('vm-42', 'b', null, false, 0, 'webmks');
+
+		$events = $log->events;
+		$keys = array_values(array_filter($events, fn($e) => str_starts_with($e, 'keys:')));
+		$this->assertCount(2, $keys);
+		$this->assertSame($keys[0], $keys[1], 'key input reuses the cached session');
+		$keySession = substr($keys[0], 5);
+		$this->assertNotContains("close:{$keySession}", $events, 'console_info and screenshots leave the key session open');
+
+		$shots = array_values(array_filter($events, fn($e) => str_starts_with($e, 'shot:')));
+		$this->assertCount(2, $shots);
+		$this->assertNotSame($shots[0], $shots[1], 'each screenshot opens its own session');
+		foreach ($shots as $s) {
+			$id = substr($s, 5);
+			$this->assertNotSame($keySession, $id);
+			$this->assertContains("close:{$id}", $events, 'screenshot session is closed after capture');
+		}
+	}
+
 	public function testWebmksMethodFailsWithoutFallback(): void
 	{
 		$fake = new FakeHttp();

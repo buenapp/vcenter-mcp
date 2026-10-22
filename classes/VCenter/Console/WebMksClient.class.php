@@ -55,6 +55,9 @@ class WebMksClient
 	private int $fbHeight = 0;
 	private string $consoleName = '';
 
+	/** Set once screenshot() has consumed this session's full frame */
+	private bool $captured = false;
+
 	/**
 	 * @param callable|null $transportFactory fn(): WebSocketTransportInterface
 	 */
@@ -263,8 +266,14 @@ class WebMksClient
 
 	/**
 	 * Full-frame screenshot: negotiate our pixel format and Raw-only
-	 * encodings, request a non-incremental update, paint rectangles
-	 * until the framebuffer is complete or the deadline expires.
+	 * encodings, request an update, paint rectangles until the
+	 * framebuffer is complete or the deadline expires.
+	 *
+	 * ESXi ignores the non-incremental flag: it sends only regions this
+	 * session has not received yet, split across responses (~2 MB each,
+	 * ~1 s apart), and stays silent on an unchanged screen. A session
+	 * therefore yields exactly one full frame; capture on a new session
+	 * (Instance::openWebMks) every time.
 	 *
 	 * @return array{png:string,width:int,height:int}
 	 * @throws VCenterException
@@ -272,15 +281,16 @@ class WebMksClient
 	public function screenshot(float $timeout = 10.0): array
 	{
 		$this->ensureOpen();
+		if ($this->captured) {
+			throw new VCenterException(
+				'WebMKS: this session already delivered its full frame; open a new session per screenshot',
+				0, 'WebMksSessionUsed');
+		}
+		$this->captured = true;
 		$deadline = microtime(true) + $timeout;
-
-		// Repaint from scratch: without this the previous capture's
-		// complete state shortcuts the update loop with stale pixels.
-		$this->framebuffer->reset();
 
 		$this->sendRfb(Rfb::setPixelFormat() . Rfb::setEncodings([0])
 			. Rfb::framebufferUpdateRequest(false, 0, 0, $this->fbWidth, $this->fbHeight));
-		$lastRequestAt = microtime(true);
 
 		while (!$this->framebuffer->complete()) {
 			if (microtime(true) > $deadline) {
@@ -303,14 +313,10 @@ class WebMksClient
 					$this->framebuffer->blit($r['x'], $r['y'], $r['w'], $r['h'], $r['data']);
 				}
 			}
-			// webmks answers each request with only the dirty region, so
-			// a partial frame needs another non-incremental request —
-			// one outstanding at a time, resent when an update arrives or
-			// the request looks lost.
-			if (!$this->framebuffer->complete()
-				&& ($gotUpdate || microtime(true) - $lastRequestAt > 1.0)) {
+			// One request outstanding: each partial response asks for
+			// the rest.
+			if ($gotUpdate && !$this->framebuffer->complete()) {
 				$this->sendRfb(Rfb::framebufferUpdateRequest(false, 0, 0, $this->fbWidth, $this->fbHeight));
-				$lastRequestAt = microtime(true);
 			}
 		}
 

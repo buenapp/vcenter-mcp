@@ -94,17 +94,20 @@ Console tools take `method=auto|soap|webmks`:
   `certThumbprintList` entry (SHA-256 on vSphere 8). The WebSocket
   handshake offers only the `binary` subprotocol; inside it is plain
   RFB 3.8 (security None, Raw encoding, 32bpp). Keystrokes go as RFB
-  KeyEvents with X11 keysyms. webmks answers each
-  FramebufferUpdateRequest with only the dirty region, so
-  `screenshot()` re-requests until the framebuffer is complete.
+  KeyEvents with X11 keysyms. ESXi ignores the non-incremental flag
+  and sends a session only regions it has not received yet (~2 MB per
+  response, ~1 s apart; nothing for an unchanged screen), so each
+  screenshot runs on its own session and `screenshot()` keeps one
+  request outstanding until the framebuffer is complete.
   Wire reads are single blocking `fread()` calls with a stream timeout
   (a `drain()` loop on a blocking socket would burn the deadline), and
   a timed-out `fread` on a TLS stream returns `false`, not `''`.
 - **auto** tries WebMKS once (plus one retry with a fresh ticket after
   an I/O error) and falls back to SOAP with a note in the result.
-- Open WebMKS sessions are cached per VM on the `Instance` (tickets
-  last ~30 s) and closed by the shutdown hook in `bin/vcenter-mcp`
-  alongside REST/SOAP logout.
+- Key-input WebMKS sessions are cached per VM on the `Instance`
+  (tickets last ~30 s) and closed by the shutdown hook in
+  `bin/vcenter-mcp` alongside REST/SOAP logout. Screenshot and
+  `vm_console_info` sessions are opened and closed per call.
 
 ## Error model
 

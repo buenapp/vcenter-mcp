@@ -51,23 +51,28 @@ class ConsoleTools
 
 		$fallback = null;
 		if ($method === 'auto' || $method === 'webmks') {
-			// A cached session can die mid-call: drop it and retry once
-			// with a fresh ticket before giving up (auto falls back to SOAP).
+			// Each capture gets its own session (ESXi sends a session
+			// only regions it has not seen yet). One retry with a fresh
+			// ticket covers transient drops, e.g. a guest reboot closing
+			// the WebSocket; auto then falls back to SOAP.
 			for ($attempt = 0; $attempt < 2; $attempt++) {
+				$client = null;
 				try {
-					$shot = $this->webMks($inst, $vmId)->screenshot();
+					$client = $inst->openWebMks($vmId);
+					$shot = $client->screenshot();
 					return ToolResult::mixed([
 						['type' => 'image', 'data' => base64_encode($shot['png']), 'mimeType' => 'image/png'],
 						['type' => 'text', 'text' => "{$shot['width']}x{$shot['height']} via webmks"],
 					]);
 				} catch (VCenterException $e) {
-					$inst->dropWebMks($vmId);
 					if ($attempt === 1) {
 						if ($method === 'webmks') {
 							throw $e;
 						}
 						$fallback = $e->getMessage();
 					}
+				} finally {
+					$client?->close();
 				}
 			}
 		}
@@ -174,10 +179,12 @@ class ConsoleTools
 		$inst = $this->manager->instance($instance);
 		$vmId = $inst->inventory()->resolveVm($vm)['vm'];
 
-		$client = $this->webMks($inst, $vmId);
-		$info = ['vm' => $vmId] + $client->info();
-		$inst->dropWebMks($vmId);
-		return $info;
+		$client = $inst->openWebMks($vmId);
+		try {
+			return ['vm' => $vmId] + $client->info();
+		} finally {
+			$client->close();
+		}
 	}
 
 	#[McpTool(
@@ -266,8 +273,8 @@ class ConsoleTools
 	// ── Internals ──────────────────────────────────────────────────
 
 	/**
-	 * Open (or reuse) the WebMKS session for a VM. Callers handle
-	 * drop+retry — see the attempt loops above.
+	 * Open (or reuse) the cached key-input WebMKS session for a VM.
+	 * vm_send_keys handles drop+retry.
 	 *
 	 * @throws VCenterException
 	 */
